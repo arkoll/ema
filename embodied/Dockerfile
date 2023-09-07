@@ -31,7 +31,7 @@ ENV MUJOCO_GL egl
 
 # Agent
 RUN pip3 install --no-cache-dir dm-sonnet
-RUN pip3 install --no-cache-dir tensorflow_probability
+RUN pip3 install --no-cache-dir tensorflow_probability==0.16.0
 ENV TF_FUNCTION_JIT_COMPILE_DEFAULT 1
 ENV XLA_PYTHON_CLIENT_MEM_FRACTION 0.8
 
