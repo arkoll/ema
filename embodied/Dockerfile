@@ -37,13 +37,13 @@ ENV XLA_PYTHON_CLIENT_MEM_FRACTION 0.8
 
 # Embodied
 RUN pip3 install --no-cache-dir numpy cloudpickle ruamel.yaml rich
-COPY . /embodied
-RUN chown -R 1000:root /embodied && chmod -R 775 /embodied
-WORKDIR /embodied
+#COPY . /embodied
+#RUN chown -R 1000:root /embodied && chmod -R 775 /embodied
+#WORKDIR /embodied
 
-CMD [ \
-    "python3", "agents/director/train.py" \
-    "--logdir=/logdir/$(date +%Y%m%d-%H%M%S)" \
-    "--configs=dmc_vision", \
-    "--task=dmc_walker_walk" \
-]
+# CMD [ \
+#     "python3", "agents/director/train.py" \
+#     "--logdir=/logdir/$(date +%Y%m%d-%H%M%S)" \
+#     "--configs=dmc_vision", \
+#     "--task=dmc_walker_walk" \
+# ]
