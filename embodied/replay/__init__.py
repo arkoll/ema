@@ -1,5 +1,5 @@
 from .store import (
-    RAMStore, DiskStore, CkptRAMStore, Stats, StoreClient, StoreServer)
+        RAMStore, DiskStore, CkptRAMStore, Stats, StoreClient, StoreServer)
 
 from .consecutive import Consecutive
 from .fixed_length import FixedLength
