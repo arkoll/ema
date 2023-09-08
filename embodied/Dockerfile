@@ -27,7 +27,12 @@ RUN pip3 install --no-cache-dir robodesk
 RUN pip3 install --no-cache-dir dm_control
 COPY scripts scripts
 RUN sh scripts/install-atari.sh
-ENV MUJOCO_GL egl
+
+ENV MUJOCO_GL=osmesa
+ENV PYOPENGL_PLATFORM=osmesa
+
+RUN apt-cache search mesa
+RUN apt-get update && apt-get install -y libgl1-mesa-glx libosmesa6
 
 # Agent
 RUN pip3 install --no-cache-dir dm-sonnet
