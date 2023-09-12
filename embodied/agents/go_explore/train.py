@@ -1,6 +1,7 @@
 import pathlib
 import sys
 import warnings
+import wandb
 
 warnings.filterwarnings('ignore', '.*box bound precision lowered.*')
 warnings.filterwarnings('ignore', '.*using stateful random seeds*')
@@ -35,6 +36,10 @@ def main(argv=None):
     args = embodied.Config(logdir=config.logdir, **config.train)
     args = args.update(expl_until=args.expl_until // config.env.repeat)
     print(config)
+    if config.log_wandb:
+        run = wandb.init(
+            project='ema', sync_tensorboard=True, config=config
+        )
 
     logdir = embodied.Path(config.logdir)
     step = embodied.Counter()
@@ -118,6 +123,9 @@ def main(argv=None):
     finally:
         for obj in cleanup:
             obj.close()
+    
+    if config.log_wandb:
+        run.finish()
 
 
 if __name__ == '__main__':

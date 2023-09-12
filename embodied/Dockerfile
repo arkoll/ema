@@ -41,14 +41,7 @@ ENV TF_FUNCTION_JIT_COMPILE_DEFAULT 1
 ENV XLA_PYTHON_CLIENT_MEM_FRACTION 0.8
 
 # Embodied
-RUN pip3 install --no-cache-dir numpy cloudpickle ruamel.yaml rich
-#COPY . /embodied
-#RUN chown -R 1000:root /embodied && chmod -R 775 /embodied
-#WORKDIR /embodied
-
-# CMD [ \
-#     "python3", "agents/director/train.py" \
-#     "--logdir=/logdir/$(date +%Y%m%d-%H%M%S)" \
-#     "--configs=dmc_vision", \
-#     "--task=dmc_walker_walk" \
-# ]
+RUN pip3 install --no-cache-dir numpy cloudpickle ruamel.yaml rich wandb
+RUN pip3 install --upgrade requests
+ENV WANDB_DIR /logdir
+WORKDIR /embodied

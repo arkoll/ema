@@ -1,6 +1,7 @@
 defaults:
 
   # Trainer
+  log_wandb: True
   logdir: /dev/null
   run: train_with_viz
   seed: 0
@@ -168,6 +169,7 @@ loconav:
 
 debug:
 
+  log_wandb: False
   env.length: 100
   env.restart: False
   env.amount: 2
