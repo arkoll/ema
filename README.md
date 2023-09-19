@@ -53,7 +53,7 @@ pip install -r requirements.txt
 Train agent:
 
 ```sh
-python embodied/agents/director/train.py \
+python embodied/agents/go_explore/train.py \
   --logdir ~/logdir/$(date +%Y%m%d-%H%M%S) \
   --configs dmc_vision \
   --task dmc_walker_walk
