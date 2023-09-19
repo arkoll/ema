@@ -88,15 +88,17 @@ class PEG(tfutils.Module):
     def policy(self, latent, carry):
         sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)
 
-        update = carry['step'] == 0
-        switch = lambda x, y: (
-                tf.einsum('i,i...->i...', 1 - update.astype(x.dtype), x) +
-                tf.einsum('i,i...->i...', update.astype(x.dtype), y))
-        goal = sg(switch(carry['goal'], self.goal_picker.policy(latent, carry)))
-        if (carry['step'] < self.config.gc_duration).all():
+        update = carry['step'] % self.config.env.length == 0
+        assert (carry['step'] % self.config.env.length < self.config.gc_duration).all() == (carry['step'] % self.config.env.length < self.config.gc_duration).any()
+        if (carry['step'] % self.config.env.length < self.config.gc_duration).all():
+            if update.all():
+                goal = self.goal_picker.policy(latent, carry)
+            else:
+                goal = carry['goal']
             actor = self.worker
             obs = sg({**latent, 'goal': goal})
         else:
+            goal = carry['goal']
             actor = self.explorer
             obs = sg(latent)
         outs, _ = actor.policy(obs, carry)
