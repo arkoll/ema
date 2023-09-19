@@ -111,8 +111,20 @@ class PEG(tfutils.Module):
                 'goal': tf.zeros((batch_size,) + self.goal_shape, tf.float32),
         }
     
-    def train(self, imageine, start, data):
-        return None, {}
+    def train(self, imagine, start, data):
+        metrics = {}
+        goal_embed = self.wm.encoder(data)
+        goal_embed = goal_embed.reshape([-1] + list(goal_embed.shape[2:]))
+        sh = goal_embed.shape
+        ids = tf.random.shuffle(tf.range(tf.shape(goal_embed)[0]))
+        goal_embed = tf.gather(goal_embed, ids)
+        goal_embed = tf.reshape(goal_embed, sh)
+        start['goal'] = goal_embed
+        _, mets = self.worker.train(self.wm.imagine, start, data)
+        metrics.update({f'worker_{k}': v for k, v in mets.items()})
+        _, mets = self.explorer.train(self.wm.imagine, start, data)
+        metrics.update({f'explorer_{k}': v for k, v in mets.items()})
+        return None, metrics
 
     def report(self, data):
         return {}
