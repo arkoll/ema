@@ -31,16 +31,17 @@ class Random(tfutils.Module):
 class Null(tfutils.Module):
 
     def __init__(self, wm, act_space, config):
+        self.wm = wm
         self.config = config
         self.act_space = act_space
-        self.goal_shape = (1, )
+        self.goal_shape = (self.wm.rssm._deter, )
 
     def initial(self, batch_size):
         return tf.zeros(batch_size)
 
     def policy(self, latent, state):
-        batch_size = len(state)
-        shape = (batch_size,)
+        batch_size = len(state['step'])
+        shape = (batch_size, ) + self.goal_shape
         return tf.zeros(shape)
 
     def train(self, imagine, start, data):
