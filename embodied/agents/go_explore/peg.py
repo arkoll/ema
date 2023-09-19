@@ -21,14 +21,68 @@ class PEG(tfutils.Module):
         self.wm = wm
         self.act_space = act_space
         self.config = config
-        self.goal_picker = getattr(goal_picker, config.goal_picker)(
-            self.wm, self.act_space, self.config
-        )
-        self.config.expl_rewards[config.explorer]
+        
         self.explorer = behaviors.Explore(self.wm, self.act_space, self.config)
-        self.worker = getattr(behaviors, config.worker)(
-            self.wm, self.act_space, self.config
-        )
+        wconfig = config.update({
+                'actor.inputs': self.config.worker_inputs,
+                'critic.inputs': self.config.worker_inputs,
+        })
+        self.worker = agent.ImagActorCritic({
+            'goal': agent.VFunction(lambda s: self.goal_reward(s), wconfig),
+        }, config.worker_rews, act_space, wconfig)
+
+        goal_picker_cls = getattr(goal_picker, config.goal_strategy)
+        p_cfg = config.planner
+        if config.goal_strategy == "Greedy":
+            goal_strategy = goal_picker_cls(replay, agnt.wm, agnt._expl_behavior._intr_reward, config.state_key, config.goal_key, 1000)
+        elif config.goal_strategy == 'Random':
+            goal_strategy = goal_picker_cls(self.wm, self.act_space, config)
+        elif config.goal_strategy == "SampleReplay":
+            goal_strategy = goal_picker_cls(agnt.wm, dataset, config.state_key, config.goal_key)
+        elif config.goal_strategy == "SubgoalPlanner":
+            init_cand = None
+
+            def vis_fn(elite_inds, elite_samples, seq, wm):
+                pass
+
+            goal_dataset = None
+            env_goals_percentage = p_cfg.init_env_goal_percent
+            mega_prior = None
+            sample_env_goals_fn = None
+
+            goal_strategy = goal_picker_cls(
+                self.wm,
+                self.worker.actor,
+                self.explorer.ac.critics['expl'].reward_fn,
+                value_fn=self.explorer.ac.critics['expl'].target,
+                gc_input=config.gc_input,
+                goal_dim=2,
+                goal_min=np.array(p_cfg.goal_min, dtype=np.float32),
+                goal_max=np.array(p_cfg.goal_max, dtype=np.float32),
+                act_space=self.act_space,
+                state_key=config.state_key,
+                planner=p_cfg.planner_type,
+                horizon=p_cfg.horizon,
+                batch=p_cfg.batch,
+                cem_elite_ratio=p_cfg.cem_elite_ratio,
+                optimization_steps=p_cfg.optimization_steps,
+                std_scale=p_cfg.std_scale,
+                mppi_gamma=p_cfg.mppi_gamma,
+                init_candidates=init_cand,
+                dataset=goal_dataset,
+                evaluate_only=p_cfg.evaluate_only,
+                repeat_samples=p_cfg.repeat_samples,
+                mega_prior=mega_prior,
+                sample_env_goals_fn=sample_env_goals_fn,
+                env_goals_percentage=env_goals_percentage,
+                vis_fn=vis_fn
+            )
+        elif config.goal_strategy in {"MEGA", "Skewfit"}:
+            goal_strategy = goal_picker_cls(agnt, replay, env.act_space, config.state_key, config.time_limit, obs2goal_fn)
+        else:
+            raise NotImplementedError
+        
+        self.goal_picker = goal_strategy
         self.goal_shape = self.goal_picker.goal_shape
     
     def policy(self, latent, carry):
