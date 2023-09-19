@@ -29,6 +29,9 @@ def load_single_env(
     if suite == 'dummy':
         from . import dummy
         env = dummy.Dummy(task, size, length or 100)
+    elif suite == 'pointmaze':
+        from .point_maze.point_maze import PointMaze2D
+        env = PointMaze2D(length=length)
     elif suite == 'gym':
         from . import gym
         env = gym.Gym(task)
