@@ -211,7 +211,7 @@ class WorldModel(tfutils.Module):
     def imagine(self, policy, start, horizon):
         first_cont = (1.0 - start['is_terminal']).astype(tf.float32)
         # TODO: lines with 'goal' need to be revisited
-        keys = list(self.rssm.initial(1).keys()) + ['goal']
+        keys = list(self.rssm.initial(1).keys()) + ['goal', 'real_goal']
         start = {k: v for k, v in start.items() if k in keys}
         start['action'] = policy(start)
         def step(prev, _):
@@ -219,8 +219,9 @@ class WorldModel(tfutils.Module):
             action = prev.pop('action')
             state = self.rssm.img_step(prev, action)
             state['goal'] = prev['goal']
+            state['real_goal'] = prev['real_goal']
             action = policy(state)
-            return {**state, 'action': action, 'goal': prev['goal']}
+            return {**state, 'action': action, 'goal': prev['goal'], 'real_goal': prev['real_goal']}
         traj = tfutils.scan(
                 step, tf.range(horizon), start, self.config.imag_unroll)
         traj = {k: tf.concat([start[k][None], v], 0) for k, v in traj.items()}
