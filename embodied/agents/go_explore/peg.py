@@ -125,13 +125,14 @@ class PEG(tfutils.Module):
     
     def train(self, imagine, start, data):
         metrics = {}
+        real_goal = start['observation']
         goal_embed = self.wm.encoder(data)
         goal_embed = goal_embed.reshape([-1] + list(goal_embed.shape[2:]))
-        sh = goal_embed.shape
         ids = tf.random.shuffle(tf.range(tf.shape(goal_embed)[0]))
         goal_embed = tf.gather(goal_embed, ids)
-        goal_embed = tf.reshape(goal_embed, sh)
+        real_goal = tf.gather(real_goal, ids)
         start['goal'] = goal_embed
+        start['real_goal'] = real_goal
         _, mets = self.worker.train(self.wm.imagine, start, data)
         metrics.update({f'worker_{k}': v for k, v in mets.items()})
         _, mets = self.explorer.train(self.wm.imagine, start, data)
