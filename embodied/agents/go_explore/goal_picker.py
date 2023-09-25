@@ -9,7 +9,7 @@ class Random(tfutils.Module):
         self.config = config
         self.act_space = act_space
         self.obs_shape = (2, ) # TODO: generalize for all envs
-        self.goal_shape = (self.wm.rssm._deter, )
+        self.goal_shape = (self.config.encoder.mlp_units, )
 
     def initial(self, batch_size):
         return tf.zeros(batch_size)
@@ -17,7 +17,7 @@ class Random(tfutils.Module):
     def policy(self, latent, state):
         batch_size = len(state['step'])
         shape = (batch_size, ) + self.obs_shape
-        goal = tf.random.uniform(shape, minval=0, maxval=10) # TODO: generalize for all envs
+        goal = tf.random.uniform(shape, minval=0, maxval=9) # TODO: generalize for all envs
         goal_obs = {'observation': goal}
         goal_embed = self.wm.encoder(goal_obs)
         return goal_embed
