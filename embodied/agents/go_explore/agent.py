@@ -39,24 +39,28 @@ class Agent(tfagent.TFAgent):
                 self.wm.rssm.initial(len(obs['is_first']))))
 
     @tf.function
-    def policy(self, obs, state=None, mode='train'):
+    def policy(self, _obs, state=None, mode='train'):
         self.config.tf.jit and print('Tracing policy function.')
+        obs = _obs.copy()
         if state is None:
             state = self.initial_policy_state(obs)
         obs = self.preprocess(obs)
+        goal = obs.pop('goal', None)
         latent, task_state, expl_state, action = state
         embed = self.wm.encoder(obs)
         latent, _ = self.wm.rssm.obs_step(latent, action, embed, obs['is_first'])
         noise = self.config.expl_noise
+        if goal is not None:
+            obs['goal'] = goal
         if mode == 'eval':
             noise = self.config.eval_noise
-            outs, task_state = self.task_behavior.policy(latent, task_state)
+            outs, task_state = self.task_behavior.policy(latent, task_state, obs, mode)
             outs = {**outs, 'action': outs['action'].mode()}
         elif mode == 'explore':
-            outs, expl_state = self.expl_behavior.policy(latent, expl_state)
+            outs, expl_state = self.expl_behavior.policy(latent, expl_state, obs)
             outs = {**outs, 'action': outs['action'].sample()}
         elif mode == 'train':
-            outs, task_state = self.task_behavior.policy(latent, task_state)
+            outs, task_state = self.task_behavior.policy(latent, task_state, obs)
             outs = {**outs, 'action': outs['action'].sample()}
         outs = {**outs, 'action': tfutils.action_noise(
                 outs['action'], noise, self.act_space)}
