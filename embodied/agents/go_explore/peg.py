@@ -143,13 +143,16 @@ class PEG(tfutils.Module):
         return {}
     
     def goal_reward(self, traj):
-        goal = tf.stop_gradient(traj['goal'].astype(tf.float32))
-        print(traj.keys())
-        feat = self.wm.encoder({k: v.mode() for k, v  in self.wm.heads['decoder'](traj).items()})
-        feat = tf.stop_gradient(feat.astype(tf.float32))
-        # feat = tf.stop_gradient(traj['deter'].astype(tf.float32))
-        print(goal.dtype, feat.dtype)
-        gnorm = tf.linalg.norm(goal, axis=-1, keepdims=True) + 1e-12
-        fnorm = tf.linalg.norm(feat, axis=-1, keepdims=True) + 1e-12
-        norm = tf.maximum(gnorm, fnorm)
-        return tf.einsum('...i,...i->...', goal / norm, feat / norm)[1:]
+        if self.config.goal_reward == 'embed_cosine':
+            goal = tf.stop_gradient(traj['goal'].astype(tf.float32))
+            feat = self.wm.encoder({k: v.mode() for k, v  in self.wm.heads['decoder'](traj).items()})
+            feat = feat.astype(tf.float32)
+            gnorm = tf.linalg.norm(goal, axis=-1, keepdims=True) + 1e-12
+            fnorm = tf.linalg.norm(feat, axis=-1, keepdims=True) + 1e-12
+            norm = tf.maximum(gnorm, fnorm)
+            return tf.einsum('...i,...i->...', goal / norm, feat / norm)[1:]
+        elif self.config.goal_reward == 'euclid':
+            goal = tf.stop_gradient(traj['real_goal'].astype(tf.float32))
+            feat = self.wm.heads['decoder'](traj)['observation'].mode().astype(tf.float32)
+            goal = goal.reshape(feat.shape)
+            return tf.math.reduce_euclidean_norm(goal - feat, axis=2)[1:]
