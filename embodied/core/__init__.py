@@ -5,7 +5,7 @@ from .path import Path
 from .checkpoint import Checkpoint
 from .config import Config
 from .counter import Counter
-from .driver import Driver
+from .driver import Driver, EvalDriver
 from .flags import Flags
 from .logger import Logger
 from .parallel import Parallel

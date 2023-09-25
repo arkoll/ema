@@ -43,3 +43,7 @@ class BatchEnv(base.Env):
                 env.close()
             except Exception:
                 pass
+
+    def set_state(self, states):
+        for i, env in enumerate(self._envs):
+            env.set_state(states[i])

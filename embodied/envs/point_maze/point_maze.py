@@ -118,6 +118,9 @@ class PointMaze2D(embodied.Env):
             self.fig.canvas.get_width_height()[::-1] + (3,)
         )
         return image_from_plot
+    
+    def set_state(self, state):
+        self.s_xy = state
 
     def clear_plots(self):
         plt.clf()
