@@ -85,24 +85,36 @@ class PEG(tfutils.Module):
         self.goal_picker = goal_strategy
         self.goal_shape = self.goal_picker.goal_shape
     
-    def policy(self, latent, carry):
+    def policy(self, latent, carry, obs, mode='train'):
         sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)
+        
+        if mode == 'eval':
+            goal = obs['goal']
+            goal_obs = {'observation': goal}
+            goal_embed = self.wm.encoder(goal_obs)
+            goal = goal_embed
+            obs = sg({**latent, 'goal': goal})
+            outs, _ = self.worker.policy(obs, carry)
+            carry = {'step': carry['step'] + 1, 'goal': goal}
+            return outs, carry
 
-        update = carry['step'] % self.config.env.length == 0
-        assert (carry['step'] % self.config.env.length < self.config.gc_duration).all() == (carry['step'] % self.config.env.length < self.config.gc_duration).any()
+        update = (obs['is_first'] == 1).all()
         if (carry['step'] % self.config.env.length < self.config.gc_duration).all():
             if update.all():
                 goal = self.goal_picker.policy(latent, carry)
             else:
                 goal = carry['goal']
             actor = self.worker
-            obs = sg({**latent, 'goal': goal})
+            _obs = sg({**latent, 'goal': goal})
+            outs, _ = actor.policy(_obs, carry)
         else:
             goal = carry['goal']
             actor = self.explorer
-            obs = sg(latent)
-        outs, _ = actor.policy(obs, carry)
+            _obs = sg(latent)
+            outs, _ = actor.policy(_obs, carry)
         carry = {'step': carry['step'] + 1, 'goal': goal}
+        if (obs['is_last'] == 1).all():
+            carry['step'] = tf.zeros(carry['step'].shape, tf.int64)
         return outs, carry
 
     def initial(self, batch_size):
