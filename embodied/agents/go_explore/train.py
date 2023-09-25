@@ -89,6 +89,16 @@ def main(argv=None):
         if config.run == 'train':
             replay = make_replay('episodes', config.replay_size)
             embodied.run.train(agent, env, replay, logger, args)
+        elif config.run == 'train_gceval':
+            eval_conf = {**config.env}
+            eval_conf['amount'] = 1
+            eval_conf['parallel'] = 'none'
+            eval_env = embodied.envs.load_env(
+                    config.task, mode='eval', logdir=logdir, **eval_conf)
+            replay = make_replay('episodes', config.replay_size)
+            embodied.run.train_gceval(
+                    agent, env, eval_env, replay, logger, args)
+            cleanup.append(eval_env)
         elif config.run == 'train_eval':
             eval_env = embodied.envs.load_env(
                     config.task, mode='eval', logdir=logdir, **config.env)
