@@ -36,6 +36,11 @@ def main(argv=None):
     args = args.update(expl_until=args.expl_until // config.env.repeat)
     print(config)
 
+    # hack to limit available gpus
+    if config.tf.device != 'all':
+        import os
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(config.tf.device)
+
     logdir = embodied.Path(config.logdir)
     step = embodied.Counter()
     cleanup = []
