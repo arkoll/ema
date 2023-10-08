@@ -45,7 +45,8 @@ class LocoNav(embodied.Env):
             aliveness_threshold=-0.5 if termination else -1.0,
             contact_termination=False,
             physics_timestep=min(1 / freq / 4, 0.02),
-            control_timestep=1 / freq
+            control_timestep=1 / freq,
+            enable_global_task_observables=True
         )
         if not again:
             def after_step(self, physics, random_state):

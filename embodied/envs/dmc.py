@@ -47,6 +47,9 @@ class DMC(embodied.Env):
             if value.shape == (0,):
                 print(f"Ignoring empty observation key '{key}'.")
                 self._ignored_keys.append(key)
+            if value.dtype == "<U1":
+                print(f"Ignoring <U1 observation key '{key}'.")
+                self._ignored_keys.append(key)
         self._done = True
 
     @property
