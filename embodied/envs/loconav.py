@@ -96,6 +96,9 @@ class LocoNav(embodied.Env):
         elif name == 'quadruped':
             from . import quadruped
             return quadruped.Quadruped()
+        elif name == 'ball':
+            from dm_control.locomotion.walkers import jumping_ball
+            return jumping_ball.RollingBallWithHead()
         else:
             raise NotImplementedError(name)
 
