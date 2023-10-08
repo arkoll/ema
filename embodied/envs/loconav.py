@@ -11,13 +11,14 @@ from . import dmc
 class LocoNav(embodied.Env):
 
     DEFAULT_CAMERAS = dict(
-            ant=4,
-            quadruped=5,
+        ant=4,
+        quadruped=5,
     )
 
     def __init__(
             self, name, repeat=1, size=(64, 64), camera=-1, again=False,
-            termination=False, weaker=1.0):
+            termination=False, weaker=1.0
+        ):
         if name.endswith('hz'):
             name, freq = name.rsplit('_', 1)
             freq = int(freq.strip('hz'))
@@ -37,24 +38,27 @@ class LocoNav(embodied.Env):
         arena = self._make_arena(arena)
         target = target_sphere.TargetSphere(radius=1.2, height_above_ground=0.0)
         task = random_goal_maze.RepeatSingleGoalMaze(
-                walker=self._walker, maze_arena=arena, target=target,
-                max_repeats=1000 if again else 1,
-                randomize_spawn_rotation=True,
-                target_reward_scale=1.0,
-                aliveness_threshold=-0.5 if termination else -1.0,
-                contact_termination=False,
-                physics_timestep=min(1 / freq / 4, 0.02),
-                control_timestep=1 / freq)
+            walker=self._walker, maze_arena=arena, target=target,
+            max_repeats=1000 if again else 1,
+            randomize_spawn_rotation=True,
+            target_reward_scale=1.0,
+            aliveness_threshold=-0.5 if termination else -1.0,
+            contact_termination=False,
+            physics_timestep=min(1 / freq / 4, 0.02),
+            control_timestep=1 / freq
+        )
         if not again:
             def after_step(self, physics, random_state):
                 super(random_goal_maze.RepeatSingleGoalMaze, self).after_step(
-                        physics, random_state)
+                    physics, random_state
+                )
                 self._rewarded_this_step = self._target.activated
                 self._targets_obtained = int(self._target.activated)
             task.after_step = functools.partial(after_step, task)
         env = composer.Environment(
-                time_limit=60, task=task, random_state=None,
-                strip_singleton_obs_buffer_dim=True)
+            time_limit=60, task=task, random_state=None,
+            strip_singleton_obs_buffer_dim=True
+        )
         self._env = dmc.DMC(env, repeat, size, camera)
         self._visited = None
         self._weaker = weaker
@@ -62,8 +66,8 @@ class LocoNav(embodied.Env):
     @property
     def obs_space(self):
         return {
-                **self._env.obs_space,
-                'log_coverage': embodied.Space(np.int64, low=0),
+            **self._env.obs_space, 
+            'log_coverage': embodied.Space(np.int64, low=0),
         }
 
     @property
@@ -78,7 +82,9 @@ class LocoNav(embodied.Env):
             obs = self._env.step(action)
         if obs['is_first']:
             self._visited = set()
-        global_pos = self._walker.get_pose(self._env._env._physics)[0].reshape(-1)
+        global_pos = self._walker.get_pose(
+            self._env._env._physics
+        )[0].reshape(-1)
         self._visited.add(tuple(np.round(global_pos[:2]).astype(int).tolist()))
         obs['log_coverage'] = len(self._visited)
         return obs
@@ -103,32 +109,36 @@ class LocoNav(embodied.Env):
             def _build(self, color=[0.8, 0.8, 0.8], model='labmaze_style_01'):
                 self._mjcf_root = mjcf.RootElement(model=model)
                 self._textures = [self._mjcf_root.asset.add(
-                        'texture', type='2d', name='wall', builtin='flat',
-                        rgb1=color, width=100, height=100)]
+                    'texture', type='2d', name='wall', builtin='flat',
+                    rgb1=color, width=100, height=100
+                )]
         wall_textures = {'*': WallTexture([0.8, 0.8, 0.8])}
         cmap = plt.get_cmap('tab10')
         for index in range(9):
             wall_textures[str(index + 1)] = WallTexture(cmap(index)[:3])
         layout = ''.join([
-                line[::2].replace('.', ' ') + '\n' for line in MAPS[name]])
+            line[::2].replace('.', ' ') + '\n' for line in MAPS[name]
+        ])
         maze = labmaze.FixedMazeWithRandomGoals(
-                entity_layer=layout,
-                num_spawns=1, num_objects=1, random_state=None)
+            entity_layer=layout,
+            num_spawns=1, num_objects=1, random_state=None
+        )
         arena = mazes.MazeWithTargets(
-                maze, xy_scale=1.2, z_height=2.0, aesthetic='default',
-                wall_textures=wall_textures, name='maze')
+            maze, xy_scale=1.2, z_height=2.0, aesthetic='default',
+            wall_textures=wall_textures, name='maze'
+        )
         return arena
 
 
 MAPS = {
 
         'maze_s': (
-                '                        6 6 6 6 6',
-                '                        6 . . . 6',
-                '                        6 . G . 6',
-                '                        6 . . . 6',
-                '                        5 . . . 4',
-                '                        5 . . . 4',
+                '            6 6 6 6 6',
+                '            6 . . . 6',
+                '            6 . G . 6',
+                '            6 . . . 6',
+                '            5 . . . 4',
+                '            5 . . . 4',
                 '1 1 1 1 5 5 5 . . . 4',
                 '1 . . . . . . . . . 3',
                 '1 . P . . . . . . . 3',
@@ -142,7 +152,7 @@ MAPS = {
                 '6 . G . . . . . . . 7',
                 '6 . . . . . . . . . 7',
                 '6 6 6 5 5 5 5 . . . 4',
-                '                        5 . . . 4',
+                '            5 . . . 4',
                 '1 1 1 1 5 5 5 . . . 4',
                 '1 . . . . . . . . . 3',
                 '1 . P . . . . . . . 3',
