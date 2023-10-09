@@ -15,7 +15,8 @@ from . import tfutils
 class Agent(tfagent.TFAgent):
 
     configs = yaml.YAML(typ='safe').load((
-            embodied.Path(sys.argv[0]).parent / 'configs.yaml').read())
+        embodied.Path(sys.argv[0]).parent / 'configs.yaml'
+    ).read())
 
     def __init__(self, obs_space, act_space, step, config):
         self.config = config
@@ -24,19 +25,23 @@ class Agent(tfagent.TFAgent):
         self.step = step
         self.wm = WorldModel(obs_space, config)
         self.task_behavior = getattr(behaviors, config.task_behavior)(
-                self.wm, self.act_space, self.config)
+            self.wm, self.act_space, self.config
+        )
         if config.expl_behavior == 'None':
             self.expl_behavior = self.task_behavior
         else:
             self.expl_behavior = getattr(behaviors, config.expl_behavior)(
-                    self.wm, self.act_space, self.config)
+                self.wm, self.act_space, self.config
+            )
         self.initial_policy_state = tf.function(lambda obs: (
-                self.wm.rssm.initial(len(obs['is_first'])),
-                self.task_behavior.initial(len(obs['is_first'])),
-                self.expl_behavior.initial(len(obs['is_first'])),
-                tf.zeros((len(obs['is_first']),) + self.act_space.shape)))
+            self.wm.rssm.initial(len(obs['is_first'])),
+            self.task_behavior.initial(len(obs['is_first'])),
+            self.expl_behavior.initial(len(obs['is_first'])),
+            tf.zeros((len(obs['is_first']),) + self.act_space.shape)
+        ))
         self.initial_train_state = tf.function(lambda obs: (
-                self.wm.rssm.initial(len(obs['is_first']))))
+            self.wm.rssm.initial(len(obs['is_first']))
+        ))
 
     @tf.function
     def policy(self, obs, state=None, mode='train'):
@@ -46,7 +51,9 @@ class Agent(tfagent.TFAgent):
         obs = self.preprocess(obs)
         latent, task_state, expl_state, action = state
         embed = self.wm.encoder(obs)
-        latent, _ = self.wm.rssm.obs_step(latent, action, embed, obs['is_first'])
+        latent, _ = self.wm.rssm.obs_step(
+            latent, action, embed, obs['is_first']
+        )
         noise = self.config.expl_noise
         if mode == 'eval':
             noise = self.config.eval_noise
@@ -74,16 +81,21 @@ class Agent(tfagent.TFAgent):
         metrics.update(mets)
         context = {**data, **wm_outs['post']}
         start = tf.nest.map_structure(
-                lambda x: x.reshape([-1] + list(x.shape[2:])), context)
+            lambda x: x.reshape([-1] + list(x.shape[2:])), context
+        )
         _, mets = self.task_behavior.train(self.wm.imagine, start, context)
         metrics.update(mets)
         if self.config.expl_behavior != 'None':
             _, mets = self.expl_behavior.train(self.wm.imagine, start, context)
-            metrics.update({'expl_' + key: value for key, value in mets.items()})
+            metrics.update({
+                'expl_' + key: value for key, value in mets.items()
+            })
         outs = {}
         if 'key' in data:
             criteria = {**data, **wm_outs}
-            outs.update(key=data['key'], priority=criteria[self.config.priority])
+            outs.update(
+                key=data['key'], priority=criteria[self.config.priority]
+            )
         return outs, state, metrics
 
     @tf.function
@@ -105,7 +117,9 @@ class Agent(tfagent.TFAgent):
             dtypes = {k: v.dtype for k, v in example.items()}
             shapes = {k: v.shape for k, v in example.items()}
             return tf.data.Dataset.range(self.config.batch_size).interleave(
-                    lambda _: tf.data.Dataset.from_generator(generator, dtypes, shapes),
+                lambda _: tf.data.Dataset.from_generator(
+                    generator, dtypes, shapes
+                ),
             ).batch(self.config.batch_size).prefetch(tf.data.AUTOTUNE)
         elif self.config.data_loader == 'embodied':
             return embodied.Prefetch(
@@ -127,8 +141,8 @@ class Agent(tfagent.TFAgent):
                 value = value.astype(tf.float32)
             obs[key] = value
         obs['reward'] = {
-                'off': tf.identity, 'sign': tf.sign,
-                'tanh': tf.tanh, 'symlog': tfutils.symlog,
+            'off': tf.identity, 'sign': tf.sign,
+            'tanh': tf.tanh, 'symlog': tfutils.symlog,
         }[self.config.transform_rewards](obs['reward'])
         obs['cont'] = 1.0 - obs['is_terminal'].astype(tf.float32)
         return obs
@@ -152,7 +166,8 @@ class WorldModel(tfutils.Module):
     def train(self, data, state=None):
         with tf.GradientTape() as model_tape:
             model_loss, state, outputs, metrics = self.loss(
-                    data, state, training=True)
+                data, state, training=True
+            )
         modules = [self.encoder, self.rssm, *self.heads.values()]
         metrics.update(self.model_opt(model_tape, model_loss, modules))
         return state, outputs, metrics
@@ -161,7 +176,8 @@ class WorldModel(tfutils.Module):
         metrics = {}
         embed = self.encoder(data)
         post, prior = self.rssm.observe(
-                embed, data['action'], data['is_first'], state)
+            embed, data['action'], data['is_first'], state
+        )
         dists = {}
         post_const = tf.nest.map_structure(tf.stop_gradient, post)
         for name, head in self.heads.items():
@@ -196,7 +212,9 @@ class WorldModel(tfutils.Module):
         metrics['model_loss_std'] = model_loss.std()
         if not self.config.tf.debug_nans:
             if 'reward' in dists:
-                stats = tfutils.balance_stats(dists['reward'], data['reward'], 0.1)
+                stats = tfutils.balance_stats(
+                    dists['reward'], data['reward'], 0.1
+                )
                 metrics.update({f'reward_{k}': v for k, v in stats.items()})
             if 'cont' in dists:
                 stats = tfutils.balance_stats(dists['cont'], data['cont'], 0.5)
@@ -216,12 +234,15 @@ class WorldModel(tfutils.Module):
             action = policy(state)
             return {**state, 'action': action}
         traj = tfutils.scan(
-                step, tf.range(horizon), start, self.config.imag_unroll)
+            step, tf.range(horizon), start, self.config.imag_unroll
+        )
         traj = {k: tf.concat([start[k][None], v], 0) for k, v in traj.items()}
         traj['cont'] = tf.concat([
-                first_cont[None], self.heads['cont'](traj).mean()[1:]], 0)
+            first_cont[None], self.heads['cont'](traj).mean()[1:]
+        ], 0)
         traj['weight'] = tf.math.cumprod(
-                self.config.discount * traj['cont']) / self.config.discount
+            self.config.discount * traj['cont']
+        ) / self.config.discount
         return traj
 
     def imagine_carry(self, policy, start, horizon, carry):
@@ -251,19 +272,22 @@ class WorldModel(tfutils.Module):
         cont = tf.concat([first_cont[None], cont[1:]], 0)
         traj['cont'] = cont
         traj['weight'] = tf.math.cumprod(
-                self.config.imag_discount * cont) / self.config.imag_discount
+            self.config.imag_discount * cont
+        ) / self.config.imag_discount
         return traj
 
     def report(self, data):
         report = {}
         report.update(self.loss(data)[-1])
         context, _ = self.rssm.observe(
-                self.encoder(data)[:6, :5], data['action'][:6, :5],
-                data['is_first'][:6, :5])
+            self.encoder(data)[:6, :5], data['action'][:6, :5],
+            data['is_first'][:6, :5]
+        )
         start = {k: v[:, -1] for k, v in context.items()}
         recon = self.heads['decoder'](context)
         openl = self.heads['decoder'](
-                self.rssm.imagine(data['action'][:6, 5:], start))
+            self.rssm.imagine(data['action'][:6, 5:], start)
+        )
         for key in self.heads['decoder'].cnn_shapes.keys():
             truth = data[key][:6].astype(tf.float32)
             model = tf.concat([recon[key].mode()[:, :5], openl[key].mode()], 1)
@@ -284,22 +308,32 @@ class ImagActorCritic(tfutils.Module):
         self.act_space = act_space
         self.config = config
         self.actor = nets.MLP(act_space.shape, **self.config.actor, dist=(
-                config.actor_dist_disc if act_space.discrete
-                else config.actor_dist_cont))
+            config.actor_dist_disc if act_space.discrete
+            else config.actor_dist_cont
+        ))
         self.grad = (
-                config.actor_grad_disc if act_space.discrete
-                else config.actor_grad_cont)
+            config.actor_grad_disc if act_space.discrete
+            else config.actor_grad_cont
+        )
         self.advnorm = tfutils.Normalize(**self.config.advnorm)
         self.retnorms = {
-                k: tfutils.Normalize(**self.config.retnorm) for k in self.critics}
+            k: tfutils.Normalize(**self.config.retnorm) for k in self.critics
+        }
         self.scorenorms = {
-                k: tfutils.Normalize(**self.config.scorenorm) for k in self.critics}
+            k: tfutils.Normalize(**self.config.scorenorm) for k in self.critics
+        }
         if self.config.actent_perdim:
-            shape = act_space.shape[:-1] if act_space.discrete else act_space.shape
+            if act_space.discrete:
+                shape = act_space.shape[:-1]
+            else:
+                shape = act_space.shape
             self.actent = tfutils.AutoAdapt(
-                    shape, **self.config.actent, inverse=True)
+                shape, **self.config.actent, inverse=True
+            )
         else:
-            self.actent = tfutils.AutoAdapt((), **self.config.actent, inverse=True)
+            self.actent = tfutils.AutoAdapt(
+                (), **self.config.actent, inverse=True
+            )
         self.opt = tfutils.Optimizer('actor', **self.config.actor_opt)
 
     def initial(self, batch_size):
@@ -310,7 +344,8 @@ class ImagActorCritic(tfutils.Module):
 
     def train(self, imagine, start, context):
         policy = lambda s: self.actor(tf.nest.map_structure(
-                tf.stop_gradient, s)).sample()
+            tf.stop_gradient, s
+        )).sample()
         with tf.GradientTape(persistent=True) as tape:
             traj = imagine(policy, start, self.config.imag_horizon)
         metrics = self.update(traj, tape)
@@ -353,8 +388,9 @@ class ImagActorCritic(tfutils.Module):
             raise NotImplementedError(self.grad)
 
         shape = (
-                self.act_space.shape[:-1] if self.act_space.discrete
-                else self.act_space.shape)
+            self.act_space.shape[:-1] if self.act_space.discrete
+            else self.act_space.shape
+        )
         if self.config.actent_perdim and len(shape) > 0:
             assert isinstance(policy, tfd.Independent), type(policy)
             ent = policy.distribution.entropy()[:-1]
@@ -364,9 +400,7 @@ class ImagActorCritic(tfutils.Module):
                 ent = (ent - lo) / (hi - lo)
             ent_loss, mets = self.actent(ent)
             ent_loss = ent_loss.sum(-1)
-
         else:
-
             ent = policy.entropy()[:-1]
             if self.config.actent_norm:
                 lo, hi = policy.minent, policy.maxent
@@ -397,19 +431,20 @@ class VFunction(tfutils.Module):
         metrics = {}
         reward = self.rewfn(traj)
         target = tf.stop_gradient(self.target(
-                traj, reward, self.config.critic_return)[0])
+            traj, reward, self.config.critic_return
+        )[0])
         with tf.GradientTape() as tape:
             dist = self.net({k: v[:-1] for k, v in traj.items()})
             loss = -(dist.log_prob(target) * traj['weight'][:-1]).mean()
         metrics.update(self.opt(tape, loss, self.net))
         metrics.update({
-                'critic_loss': loss,
-                'imag_reward_mean': reward.mean(),
-                'imag_reward_std': reward.std(),
-                'imag_critic_mean': dist.mean().mean(),
-                'imag_critic_std': dist.mean().std(),
-                'imag_return_mean': target.mean(),
-                'imag_return_std': target.std(),
+            'critic_loss': loss,
+            'imag_reward_mean': reward.mean(),
+            'imag_reward_std': reward.std(),
+            'imag_critic_mean': dist.mean().mean(),
+            'imag_critic_std': dist.mean().std(),
+            'imag_return_mean': target.mean(),
+            'imag_return_std': target.std(),
         })
         self.update_slow()
         return metrics
@@ -419,21 +454,27 @@ class VFunction(tfutils.Module):
 
     def target(self, traj, reward, impl):
         if len(reward) != len(traj['action']) - 1:
-            raise AssertionError('Should provide rewards for all but last action.')
+            raise AssertionError(
+                'Should provide rewards for all but last action.'
+            )
         disc = traj['cont'][1:] * self.config.discount
         value = self.target_net(traj).mean()
         if impl == 'gae':
             advs = [tf.zeros_like(value[0])]
             deltas = reward + disc * value[1:] - value[:-1]
             for t in reversed(range(len(disc))):
-                advs.append(deltas[t] + disc[t] * self.config.return_lambda * advs[-1])
+                advs.append(
+                    deltas[t] + disc[t] * self.config.return_lambda * advs[-1]
+                )
             adv = tf.stack(list(reversed(advs))[:-1])
             return adv + value[:-1], value[:-1]
         elif impl == 'gve':
             vals = [value[-1]]
             interm = reward + disc * value[1:] * (1 - self.config.return_lambda)
             for t in reversed(range(len(disc))):
-                vals.append(interm[t] + disc[t] * self.config.return_lambda * vals[-1])
+                vals.append(
+                    interm[t] + disc[t] * self.config.return_lambda * vals[-1]
+                )
             ret = tf.stack(list(reversed(vals))[:-1])
             return ret, value[:-1]
         else:
@@ -483,19 +524,21 @@ class QFunction(tfutils.Module):
             loss = -(dist.log_prob(target) * traj['weight'][:-1]).mean()
         metrics.update(self.opt(tape, loss, self.net))
         metrics.update({
-                'imag_reward_mean': reward.mean(),
-                'imag_reward_std': reward.std(),
-                'imag_critic_mean': dist.mean().mean(),
-                'imag_critic_std': dist.mean().std(),
-                'imag_target_mean': target.mean(),
-                'imag_target_std': target.std(),
+            'imag_reward_mean': reward.mean(),
+            'imag_reward_std': reward.std(),
+            'imag_critic_mean': dist.mean().mean(),
+            'imag_critic_std': dist.mean().std(),
+            'imag_target_mean': target.mean(),
+            'imag_target_std': target.std(),
         })
         self.update_slow()
         return metrics
 
     def target(self, traj, actor, reward):
         if len(reward) != len(traj['action']) - 1:
-            raise AssertionError('Should provide rewards for all but last action.')
+            raise AssertionError(
+                'Should provide rewards for all but last action.'
+            )
         cont = traj['cont'][1:]
         disc = cont * self.config.discount
         action = actor(traj).sample()
@@ -504,7 +547,9 @@ class QFunction(tfutils.Module):
             vals = [value[-1]]
             interm = reward + disc * value[1:] * (1 - self.config.return_lambda)
             for t in reversed(range(len(disc))):
-                vals.append(interm[t] + disc[t] * self.config.return_lambda * vals[-1])
+                vals.append(
+                    interm[t] + disc[t] * self.config.return_lambda * vals[-1]
+                )
             tar = tf.stack(list(reversed(vals))[:-1])
             return tar
         else:
@@ -546,8 +591,9 @@ class TwinQFunction(tfutils.Module):
         traj = tf.nest.map_structure(tf.stop_gradient, traj)
         inps = {**traj, 'action': actor(traj).sample()}
         ret = tf.math.reduce_min([
-                self.net1(inps).mode(),
-                self.net2(inps).mode()], 0)[:-1]
+            self.net1(inps).mode(),
+            self.net2(inps).mode()
+        ], 0)[:-1]
         baseline = tf.zeros_like(ret)
         return ret, baseline
 
@@ -564,29 +610,34 @@ class TwinQFunction(tfutils.Module):
             loss = loss1 + loss2
         metrics.update(self.opt(tape, loss, [self.net1, self.net2]))
         metrics.update({
-                'imag_reward_mean': reward.mean(),
-                'imag_reward_std': reward.std(),
-                'imag_critic_mean': dist1.mean().mean(),
-                'imag_critic_std': dist2.mean().std(),
-                'imag_target_mean': target.mean(),
-                'imag_target_std': target.std(),
+            'imag_reward_mean': reward.mean(),
+            'imag_reward_std': reward.std(),
+            'imag_critic_mean': dist1.mean().mean(),
+            'imag_critic_std': dist2.mean().std(),
+            'imag_target_mean': target.mean(),
+            'imag_target_std': target.std(),
         })
         self.update_slow()
         return metrics
 
     def target(self, traj, actor, reward):
         if len(reward) != len(traj['action']) - 1:
-            raise AssertionError('Should provide rewards for all but last action.')
+            raise AssertionError(
+                'Should provide rewards for all but last action.'
+            )
         cont = traj['cont'][1:]
         disc = cont * self.config.discount
         value = tf.math.reduce_min([
-                self.target_net1({**traj, 'action': actor(traj).sample()}).mean(),
-                self.target_net2({**traj, 'action': actor(traj).sample()}).mean()], 0)
+            self.target_net1({**traj, 'action': actor(traj).sample()}).mean(),
+            self.target_net2({**traj, 'action': actor(traj).sample()}).mean()
+        ], 0)
         if self.config.pengs_qlambda:
             vals = [value[-1]]
             interm = reward + disc * value[1:] * (1 - self.config.return_lambda)
             for t in reversed(range(len(disc))):
-                vals.append(interm[t] + disc[t] * self.config.return_lambda * vals[-1])
+                vals.append(
+                    interm[t] + disc[t] * self.config.return_lambda * vals[-1]
+                )
             tar = tf.stack(list(reversed(vals))[:-1])
             return tar
         else:

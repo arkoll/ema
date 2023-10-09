@@ -16,7 +16,9 @@ class Greedy(tfutils.Module):
             critics = {'extr': agent.VFunction(rewfn, config)}
         elif config.critic_type == 'qfunction':
             critics = {'extr': agent.QFunction(rewfn, config)}
-        self.ac = agent.ImagActorCritic(critics, {'extr': 1.0}, act_space, config)
+        self.ac = agent.ImagActorCritic(
+            critics, {'extr': 1.0}, act_space, config
+        )
 
     def initial(self, batch_size):
         return self.ac.initial(batch_size)
@@ -60,10 +62,10 @@ class Random(tfutils.Module):
 class Explore(tfutils.Module):
 
     REWARDS = {
-            'disag': expl.Disag,
-            'vae': expl.LatentVAE,
-            'ctrl': expl.CtrlDisag,
-            'pbe': expl.PBE,
+        'disag': expl.Disag,
+        'vae': expl.LatentVAE,
+        'ctrl': expl.CtrlDisag,
+        'pbe': expl.PBE,
     }
 
     def __init__(self, wm, act_space, config):
@@ -79,8 +81,8 @@ class Explore(tfutils.Module):
             else:
                 reward = self.REWARDS[key](wm, act_space, config)
                 critics[key] = agent.VFunction(reward, config.update(
-                        discount=config.expl_discount,
-                        retnorm=config.expl_retnorm,
+                    discount=config.expl_discount,
+                    retnorm=config.expl_retnorm,
                 ))
                 self.rewards[key] = reward
         scales = {k: v for k, v in config.expl_rewards.items() if v}

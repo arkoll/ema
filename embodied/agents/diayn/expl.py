@@ -29,7 +29,8 @@ class Disag(tfutils.Module):
         # TODO: This can be removed once we change the action alignment in the
         # replay buffer.
         data = {**data, 'action': tf.concat(
-                [data['action'][:, 1:], 0 * data['action'][:, :1]], 1)}
+            [data['action'][:, 1:], 0 * data['action'][:, :1]], 1
+        )}
         self._build(data)
         inputs = self.inputs(data)[:, :-1]
         target = self.target(data)[:, 1:].astype(tf.float32)
@@ -41,8 +42,9 @@ class Disag(tfutils.Module):
     def _build(self, data):
         if not self.nets:
             self.nets = [
-                    nets.MLP(self.target(data).shape[-1], **self.config.disag_head)
-                    for _ in range(self.config.disag_models)]
+                nets.MLP(self.target(data).shape[-1], **self.config.disag_head)
+                for _ in range(self.config.disag_models)
+            ]
 
 
 class LatentVAE(tfutils.Module):
@@ -61,7 +63,8 @@ class LatentVAE(tfutils.Module):
         self.kl = tfutils.AutoAdapt(**self.config.expl_kl)
         self.opt = tfutils.Optimizer('disag', **self.config.expl_opt)
         self.flatten = lambda x: x.reshape(
-                x.shape[:-len(shape)] + [np.prod(x.shape[len(shape):])])
+            x.shape[:-len(shape)] + [np.prod(x.shape[len(shape):])]
+        )
 
     def __call__(self, traj):
         dist = self.enc(traj)
@@ -95,7 +98,8 @@ class CtrlDisag(tfutils.Module):
 
     def __init__(self, wm, act_space, config):
         self.disag = Disag(
-                wm, act_space, config.update({'disag_target': ['ctrl']}))
+            wm, act_space, config.update({'disag_target': ['ctrl']})
+        )
         self.embed = nets.MLP((config.ctrl_size,), **config.ctrl_embed)
         self.head = nets.MLP(act_space.shape, **config.ctrl_head)
         self.opt = tfutils.Optimizer('ctrl', **config.ctrl_opt)
@@ -124,9 +128,12 @@ class PBE(tfutils.Module):
         feat = self.inputs(traj)
         flat = feat.reshape([-1, feat.shape[-1]])
         dists = tf.norm(
-                flat[:, None, :].reshape((len(flat), 1, -1)) -
-                flat[None, :, :].reshape((1, len(flat), -1)), axis=-1)
-        rew = -tf.math.top_k(-dists, self.config.pbe_knn, sorted=True)[0].mean(-1)
+            flat[:, None, :].reshape((len(flat), 1, -1)) -
+            flat[None, :, :].reshape((1, len(flat), -1)), axis=-1
+        )
+        rew = -tf.math.top_k(
+            -dists, self.config.pbe_knn, sorted=True
+        )[0].mean(-1)
         return rew.reshape(feat.shape[:-1]).astype(tf.float32)
 
     def train(self, data):

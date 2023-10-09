@@ -31,10 +31,15 @@ def train_with_viz(agent, env, train_replay, eval_replay, logger, args):
         print(f'Episode has {length} steps and return {score:.1f}.')
         metrics['length'] = length
         metrics['score'] = score
-        metrics['reward_rate'] = (ep['reward'] - ep['reward'].min() >= 0.1).mean()
+        metrics['reward_rate'] = (
+            ep['reward'] - ep['reward'].min() >= 0.1
+        ).mean()
         logs = {}
         for key, value in ep.items():
-            if not args.log_zeros and key not in nonzeros and (value == 0).all():
+            if (
+                not args.log_zeros and key not in nonzeros
+                and (value == 0).all()
+            ):
                 continue
             nonzeros.add(key)
             if re.match(args.log_keys_sum, key):
@@ -52,7 +57,8 @@ def train_with_viz(agent, env, train_replay, eval_replay, logger, args):
                     if ep['image'].shape == ep['log_goal'].shape:
                         goal = (255 * ep['log_goal']).astype(np.uint8)
                         metrics[f'policy_{key}_with_goal'] = np.concatenate(
-                                [ep['image'], goal], 2)
+                            [ep['image'], goal], 2
+                        )
         logger.add(metrics, prefix='episode')
         logger.add(logs, prefix='logs')
         logger.add(train_replay.stats, prefix='replay')
@@ -98,7 +104,9 @@ def train_with_viz(agent, env, train_replay, eval_replay, logger, args):
             with warnings.catch_warnings():    # Ignore empty slice warnings.
                 warnings.simplefilter('ignore', category=RuntimeWarning)
                 for name, values in metrics.items():
-                    logger.scalar('train/' + name, np.nanmean(values, dtype=np.float64))
+                    logger.scalar(
+                        'train/' + name, np.nanmean(values, dtype=np.float64)
+                    )
                     metrics[name].clear()
             logger.add(agent.report(batch[0]), prefix='report')
             logger.add(agent.report(next(dataset_eval)), prefix='eval')
