@@ -13,6 +13,7 @@ class LocoNav(embodied.Env):
     DEFAULT_CAMERAS = dict(
         ant=4,
         quadruped=5,
+        ball=2,
     )
 
     def __init__(
@@ -83,9 +84,13 @@ class LocoNav(embodied.Env):
             obs = self._env.step(action)
         if obs['is_first']:
             self._visited = set()
-        global_pos = self._walker.get_pose(
-            self._env._env._physics
-        )[0].reshape(-1)
+        # TODO: find why this doesn't work for ball walker
+        # global_pos = self._walker.get_pose(
+        #     self._env._env._physics
+        # )[0].reshape(-1)
+        global_pos = self._env._env._physics.bind(
+            self._walker.root_body
+        ).xpos.copy()
         self._visited.add(tuple(np.round(global_pos[:2]).astype(int).tolist()))
         obs['log_coverage'] = len(self._visited)
         return obs
