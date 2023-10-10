@@ -294,6 +294,11 @@ class WorldModel(tfutils.Module):
             error = (model - truth + 1) / 2
             video = tf.concat([truth, model, error], 2)
             report[f'openl_{key}'] = tfutils.video_grid(video)
+        for key in self.heads['decoder'].mlp_shapes.keys():
+            truth = data[key][:6].astype(tf.float32)
+            model = tf.concat([recon[key].mode()[:, :5], openl[key].mode()], 1)
+            error = tf.reduce_mean(tf.abs(model - truth))
+            report[f'mae_{key}'] = error
         return report
 
 
