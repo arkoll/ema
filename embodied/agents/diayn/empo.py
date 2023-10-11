@@ -95,4 +95,21 @@ class DIAYN(tfutils.Module):
         min_lim = tf.reduce_min(all_coord, 0)[:2]
         max_lim = tf.reduce_max(all_coord, 0)[:2]
         img_data = (coords, r_coords, skills, min_lim, max_lim)
-        return {'skill_map': img_data}
+
+        start = {k: v[:1, 4] for k, v in states.items()}
+        start['is_terminal'] = data['is_terminal'][:1, 4]
+        n_skills = self.config.skill_shape[0]
+        n_samp = self.config.skill_samples
+        start = {
+            k: tf.repeat(v, n_skills * n_samp, 0) for k, v in start.items()
+        }
+        skill = tf.repeat(tf.eye(n_skills), n_samp, 0)
+        worker = lambda s: self.worker.actor({**s, 'skill': skill,}).sample()
+        traj = self.wm.imagine(
+            worker, start, self.config.worker_report_horizon
+        )
+        initial = decoder(start)['absolute_position'].mode()[0]
+        rollout = decoder(traj)['absolute_position'].mode()
+        length = 1 + self.config.worker_report_horizon
+        rollout = tf.reshape(rollout, (length, n_skills, n_samp, -1))
+        return {'skill_map': img_data, 'skill_trajs': (initial, rollout)}

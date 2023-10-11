@@ -33,7 +33,7 @@ defaults:
     log_every: 1e4
     eval_every: 3e4
     eval_eps: 1
-    eval_samples: 1
+    eval_samples: 10
     train_every: 16
     train_steps: 1
     train_fill: 1e4
@@ -153,6 +153,7 @@ defaults:
   # DIAYN
   skill_encoder: {layers: 4, units: 512, act: elu, norm: layer, dist: onehot, outscale: 0.1, unimix: 0.0, inputs: [deter, stoch]}
   skill_opt: {opt: adam, lr: 1e-4, eps: 1e-6, clip: 100.0, wd: 1e-2, wd_pattern: 'kernel'}
+  skill_samples: 5
 
 dmlab:
 
