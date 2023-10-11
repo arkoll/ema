@@ -6,6 +6,7 @@ from . import expl
 from . import tfutils
 
 from .hierarchy import Hierarchy    # noqa
+from .empo import DIAYN
 
 
 class Greedy(tfutils.Module):

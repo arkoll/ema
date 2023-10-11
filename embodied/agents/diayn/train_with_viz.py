@@ -4,6 +4,35 @@ import warnings
 
 import embodied
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+
+
+def postprocess_report(data):
+    for key, value in data.items():
+        if 'map' in key:
+            coords, r_coords, skills, min_lim, max_lim = value
+            fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=500)
+            fig.tight_layout(pad=0)
+            cmap = mpl.colormaps['tab20']
+            ax[0].set_aspect('equal')
+            ax[0].scatter(coords[:, 0], coords[:, 1], s=10, color=cmap(skills))
+            ax[0].set_xlim(min_lim[0], max_lim[0])
+            ax[0].set_ylim(min_lim[1], max_lim[1])
+            ax[1].set_aspect('equal')
+            ax[1].scatter(
+                r_coords[:, 0], r_coords[:, 1], s=10, color=cmap(skills)
+            )
+            ax[1].set_xlim(min_lim[0], max_lim[0])
+            ax[1].set_ylim(min_lim[1], max_lim[1])
+            fig.canvas.draw()
+            img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+            img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
+            img = np.transpose(img, [1, 2, 0])
+            img = img.astype(float) / 255.      
+            plt.close(fig)
+            data[key] = img
+    return data
 
 
 def train_with_viz(agent, env, train_replay, eval_replay, logger, args):
@@ -108,8 +137,13 @@ def train_with_viz(agent, env, train_replay, eval_replay, logger, args):
                         'train/' + name, np.nanmean(values, dtype=np.float64)
                     )
                     metrics[name].clear()
-            logger.add(agent.report(batch[0]), prefix='report')
-            logger.add(agent.report(next(dataset_eval)), prefix='eval')
+            logger.add(
+                postprocess_report(agent.report(batch[0])), prefix='report'
+            )
+            logger.add(
+                postprocess_report(agent.report(next(dataset_eval))),
+                prefix='eval'
+            )
             logger.add(timer.stats(), prefix='timer')
             logger.write(fps=True)
     driver.on_step(train_step)

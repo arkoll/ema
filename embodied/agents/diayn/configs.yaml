@@ -150,6 +150,10 @@ defaults:
   expl_kl: {impl: mult, scale: 0.1, target: 10.0, min: 1e-2, max: 1.0, vel: 0.1}
   expl_vae_elbo: False
 
+  # DIAYN
+  skill_encoder: {layers: 4, units: 512, act: elu, norm: layer, dist: onehot, outscale: 0.1, unimix: 0.0, inputs: [deter, stoch]}
+  skill_opt: {opt: adam, lr: 1e-4, eps: 1e-6, clip: 100.0, wd: 1e-2, wd_pattern: 'kernel'}
+
 dmlab:
 
   task: dmlab_rooms_collect_good_objects_train
@@ -200,6 +204,19 @@ loconav:
   encoder: {mlp_keys: '.*(joints|sensors|actuator|effectors|appendages|bodies|height|zaxis).*', cnn_keys: 'image'}
   decoder: {mlp_keys: '.*(joints|sensors|actuator|effectors|appendages|bodies|height|zaxis).*', cnn_keys: 'image'}
   train.log_keys_max: '^log_.*'
+
+diayn:
+  task: loconav_ball_maze_s
+  encoder: {mlp_keys: '(absolute_position|walker/target_0)', cnn_keys: 'image'}
+  decoder: {mlp_keys: '(absolute_position|walker/target_0)', cnn_keys: 'image'}
+  train.log_keys_max: '^log_.*'
+  task_behavior: DIAYN
+  expl_behavior: Explore
+  discount: 0.99
+  imag_discount: 0.99
+  skill_shape: [20]
+  worker_inputs: [deter, stoch, skill]
+  expl_rewards.disag: 1.0
 
 debug:
 
