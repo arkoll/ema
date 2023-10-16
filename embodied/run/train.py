@@ -43,9 +43,9 @@ def train(agent, env, replay, logger, args):
                 logs[f'mean_{key}'] = ep[key].mean()
             if re.match(args.log_keys_max, key):
                 logs[f'max_{key}'] = ep[key].max(0).mean()
-        if should_video(step):
-            for key in args.log_keys_video:
-                metrics[f'policy_{key}'] = ep[key]
+        # if should_video(step):
+        #     for key in args.log_keys_video:
+        #         metrics[f'policy_{key}'] = ep[key]
         logger.add(metrics, prefix='episode')
         logger.add(logs, prefix='logs')
         logger.add(replay.stats, prefix='replay')
