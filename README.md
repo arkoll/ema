@@ -50,13 +50,18 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
+To run training in docker run:
+
+```
+docker run --env WANDB_API_KEY=$WANDB_API_KEY --rm -it -d --gpus all -v $(pwd):/code -w /code director bash
+```
+
 Train agent:
 
 ```sh
 python embodied/agents/go_explore/train.py \
   --logdir ~/logdir/$(date +%Y%m%d-%H%M%S) \
-  --configs dmc_vision \
-  --task dmc_walker_walk
+  --configs point_maze 
 ```
 
 See `agents/director/configs.yaml` for available flags and
