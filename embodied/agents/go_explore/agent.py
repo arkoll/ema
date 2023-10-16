@@ -368,7 +368,10 @@ class ImagActorCritic(tfutils.Module):
         shape = (
                 self.act_space.shape[:-1] if self.act_space.discrete
                 else self.act_space.shape)
-        if self.config.actent_perdim and len(shape) > 0:
+        if self.config.simple_ent:
+            ent = policy.distribution.entropy()[:-1].sum(-1)
+            ent_loss = -ent*self.config.actent.scale
+        elif self.config.actent_perdim and len(shape) > 0:
             assert isinstance(policy, tfd.Independent), type(policy)
             ent = policy.distribution.entropy()[:-1]
             if self.config.actent_norm:
@@ -386,7 +389,7 @@ class ImagActorCritic(tfutils.Module):
                 ent = (ent - lo) / (hi - lo)
             ent_loss, mets = self.actent(ent)
 
-        metrics.update({f'actent_{k}': v for k, v in mets.items()})
+        #metrics.update({f'actent_{k}': v for k, v in mets.items()})
         loss += ent_loss
         loss *= tf.stop_gradient(traj['weight'])[:-1]
         return loss, metrics
