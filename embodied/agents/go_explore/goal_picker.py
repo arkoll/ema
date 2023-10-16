@@ -18,9 +18,7 @@ class Random(tfutils.Module):
         batch_size = len(state['step'])
         shape = (batch_size, ) + self.obs_shape
         goal = tf.random.uniform(shape, minval=0, maxval=9) # TODO: generalize for all envs
-        goal_obs = {'observation': goal}
-        goal_embed = self.wm.encoder(goal_obs)
-        return goal_embed
+        return goal.astype(tf.float16)
 
     def train(self, imagine, start, data):
         return None, {}
@@ -80,7 +78,7 @@ class SubgoalPlanner:
             vis_fn=None,
         ):
         self.wm = wm
-        self.dtype = wm.dtype
+        #self.dtype = wm.dtype
         self.actor = actor
         self.reward_fn = reward_fn
         self.gc_input = gc_input
@@ -136,10 +134,13 @@ class SubgoalPlanner:
             action = tf.expand_dims(action, 0)
             # action should be (1,1, D)
             # print("using exisitng state")
+        # obs = tf.nest.map_structure(lambda x: tf.expand_dims(tf.expand_dims(tf.tensor(x),0),0), obs)[0]
+        # obs = self.wm.preprocess(obs)
 
 
         # create start state.
         embed = self.wm.encoder(obs)
+        print(embed.shape, action.shape, obs['is_first'].shape)
         # posterior is q(s' | s,a,e)
         post, prior = self.wm.rssm.observe(
                 embed, action, obs['is_first'], latent)
@@ -278,6 +279,11 @@ class SubgoalPlanner:
         else:
             samples = tfd.MultivariateNormalDiag(self.means, self.stds).sample(sample_shape=[batch])
         return samples
+    
+    def policy(self, latent, state, obs):
+        batch_size = len(state['step'])
+        self.search_goal(obs)
+        return self.sample_goal(batch_size)
 
     def create_init_distribution(self, init_candidates):
         """Create the starting distribution for seeding the planner.
