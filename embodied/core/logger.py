@@ -169,6 +169,8 @@ class TensorBoardOutput(AsyncOutput):
                 tf.summary.image(name, value, step)
             elif len(value.shape) == 4:
                 self._video_summary(name, value, step)
+            elif len(value.shape) == 5:
+                self._lexa_video_summary(name, value, step)
         self._writer.flush()
 
     def _video_summary(self, name, video, step):
@@ -187,6 +189,43 @@ class TensorBoardOutput(AsyncOutput):
         except (IOError, OSError) as e:
             print('GIF summaries require ffmpeg in $PATH.', e)
             tf.summary.image(name, video, step)
+
+    def _lexa_video_summary(self, name, video, step, fps=40):
+        import tensorflow as tf
+        import tensorflow.compat.v1 as tf1
+        name = name if isinstance(name, str) else name.decode('utf-8')
+        if np.issubdtype(video.dtype, np.floating):
+            video = np.clip(255 * video, 0, 255).astype(np.uint8)
+        B, T, H, W, C = video.shape
+        try:
+            frames = video.transpose((1, 2, 0, 3, 4)).reshape((T, H, B * W, C))
+            summary = tf1.Summary()
+            image = tf1.Summary.Image(height=B * H, width=T * W, colorspace=C)
+            image.encoded_image_string = encode_gif(frames, fps)
+            summary.value.add(tag=name, image=image)
+            tf.summary.experimental.write_raw_pb(summary.SerializeToString(), step)
+        except (IOError, OSError) as e:
+            print('GIF summaries require ffmpeg in $PATH.', e)
+            frames = video.transpose((0, 2, 1, 3, 4)).reshape((1, B * H, T * W, C))
+            tf.summary.image(name, frames, step)
+
+def encode_gif(frames, fps):
+    from subprocess import Popen, PIPE
+    h, w, c = frames[0].shape
+    pxfmt = {1: 'gray', 3: 'rgb24'}[c]
+    cmd = ' '.join([
+            'ffmpeg -y -f rawvideo -vcodec rawvideo',
+            f'-r {fps:.02f} -s {w}x{h} -pix_fmt {pxfmt} -i - -filter_complex',
+            '[0:v]split[x][z];[z]palettegen[y];[x]fifo[x];[x][y]paletteuse',
+            f'-r {fps:.02f} -f gif -'])
+    proc = Popen(cmd.split(' '), stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    for image in frames:
+        proc.stdin.write(image.tobytes())
+    out, err = proc.communicate()
+    if proc.returncode:
+        raise IOError('\n'.join([' '.join(cmd), err.decode('utf8')]))
+    del proc
+    return out
 
 
 class MlflowOutput:
