@@ -5,6 +5,41 @@ import warnings
 
 import embodied
 import numpy as np
+import matplotlib.pyplot as plt
+
+class BufferDrawer():
+    def __init__(self) -> None:
+        self.buffer = {'states': {'x': [], 'y': []},
+                       'estates': {'x': [], 'y': []},
+                       'goals': {'x': [], 'y': []}}
+        self.ax = plt.subplot(1, 1, 1) 
+
+    def add_traj(self, trajs):
+        for traj in trajs:
+            self.buffer['goals']['x'].append(traj['real_goal'][0][0])
+            self.buffer['goals']['y'].append(traj['real_goal'][0][1])
+            for xy in traj['observation'][:25]:
+                self.buffer['states']['x'].append(xy[0])
+                self.buffer['states']['y'].append(xy[1])  
+            for xy in traj['observation'][25:]:
+                self.buffer['estates']['x'].append(xy[0])
+                self.buffer['estates']['y'].append(xy[1])        
+
+    def draw(self):
+        self.fig, self.ax = plt.subplots(1, 1)
+        self.ax.scatter(self.buffer['states']['x'], self.buffer['states']['y'], s=0.1, color='green')
+        self.ax.scatter(self.buffer['estates']['x'], self.buffer['estates']['y'], s=0.1, color='red')
+        self.ax.scatter(self.buffer['goals']['x'], self.buffer['goals']['y'], s=0.1, color='blue')
+        fig = self.ax.figure
+        fig.canvas.draw()
+        # Now we can save it to a numpy array.
+        data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        for k in self.buffer:
+            for k2 in self.buffer[k]:
+                self.buffer[k][k2] = []
+        return data[None, ...]
+        
 
 def train_gceval(agent, env, eval_env, replay, logger, args):
 
@@ -24,6 +59,7 @@ def train_gceval(agent, env, eval_env, replay, logger, args):
         timer.wrap('replay', replay, ['_sample'])
 
     nonzeros = set()
+    buffer_drawer = BufferDrawer()
     def per_episode(ep):
         metrics = {}
         length = len(ep['reward']) - 1
@@ -46,6 +82,7 @@ def train_gceval(agent, env, eval_env, replay, logger, args):
         # if should_video(step):
         #     for key in args.log_keys_video:
         #         metrics[f'policy_{key}'] = ep[key]
+        buffer_drawer.add_traj([ep])
         logger.add(metrics, prefix='episode')
         logger.add(logs, prefix='logs')
         logger.add(replay.stats, prefix='replay')
@@ -56,7 +93,7 @@ def train_gceval(agent, env, eval_env, replay, logger, args):
     driver.on_step(lambda tran, _: step.increment())
     driver.on_step(replay.add)
 
-    driver_eval = embodied.EvalDriver(eval_env, logger)
+    driver_eval = embodied.EvalDriver(eval_env, logger, buffer_drawer)
 
     train_fill = max(0, args.train_fill - len(replay))
     if train_fill:
