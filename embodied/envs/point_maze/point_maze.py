@@ -107,9 +107,9 @@ class PointMaze2D(embodied.Env):
 
         self.fig.canvas.restore_region(self.background)
         self.scatter.set_offsets(self.s_xy)
-        self.goal_scatter.set_offsets(self.g_xy)
+        # self.goal_scatter.set_offsets(self.g_xy)
         self.ax.draw_artist(self.scatter)
-        self.ax.draw_artist(self.goal_scatter)
+        # self.ax.draw_artist(self.goal_scatter)
         self.fig.canvas.blit(self.ax.bbox)
         image_from_plot = np.frombuffer(
             self.fig.canvas.tostring_rgb(), dtype=np.uint8
