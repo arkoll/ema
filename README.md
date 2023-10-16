@@ -61,7 +61,7 @@ Train agent:
 ```sh
 python embodied/agents/go_explore/train.py \
   --logdir ~/logdir/$(date +%Y%m%d-%H%M%S) \
-  --configs point_maze 
+  --configs pointmaze 
 ```
 
 See `agents/director/configs.yaml` for available flags and
