@@ -54,6 +54,12 @@ class Driver:
         assert all(len(x) == len(self._env) for x in acts.values()), acts
         self._obs = self._env.step(acts)
         assert all(len(x) == len(self._env) for x in self._obs.values()), self._obs
+        if self._state is not None:
+            self._obs['real_goal'] = self._state[2]['real_goal']
+        else:
+            import tensorflow as tf
+            self._obs['real_goal'] = tf.zeros((4, 2))
+
         self._obs = {k: convert(v) for k, v in self._obs.items()}
         trns = {**self._obs, **acts}
         if self._obs['is_first'].any():
@@ -117,10 +123,11 @@ class EvalDriver:
             bool: bool,
     }
 
-    def __init__(self, env, logger, **kwargs):
+    def __init__(self, env, logger, drawer, **kwargs):
         assert len(env) > 0
         assert len(env) == 1 # TODO: make the driver support multiple envs
         self._env = env
+        self.drawer = drawer
         self.logger = logger
         # self.goals = kwargs['goals']
         self.goals = [[9, 9], [6, 9], [0, 9], [9, 6], [9, 0], [6, 6], [6, 3], [3, 6], [3, 3], [0, 3], [3, 0]]
@@ -145,7 +152,7 @@ class EvalDriver:
     def on_episode(self, callback):
         self._on_episodes.append(callback)
 
-    def __call__(self, policy, repeat=1):
+    def __call__(self, policy, repeat=10):
         metrics = [{'dist': [], 'success': []} for _ in range(len(self.goals))]
         goal_images = []
         execution_image_trajectories = []
@@ -182,6 +189,7 @@ class EvalDriver:
             self.logger.scalar(f'success/goal_{i}', np.mean(met['success']))
         self.logger.scalar(f'dist/goal_all', np.mean([np.mean(met['dist']) for met in metrics]))
         self.logger.scalar(f'success/goal_all', np.mean([np.mean(met['success']) for met in metrics]))
+        self.logger.image('buffer', self.drawer.draw())
 
 
     def _step(self, policy, goal, step=0, episode=0):
