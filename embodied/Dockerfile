@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y \
 RUN pip3 install --no-cache-dir crafter
 RUN pip3 install --no-cache-dir robodesk
 RUN pip3 install --no-cache-dir dm_control
+RUN pip3 install --no-cache-dir wandb
+RUN pip3 install --no-cache-dir matplotlib
 COPY scripts scripts
 RUN sh scripts/install-atari.sh
 
