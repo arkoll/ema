@@ -33,14 +33,13 @@ def plot_traj(coords, r_coords, skills, min_lim, max_lim):
 
 def plot_trajs(initial, rollout):
     fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
-    fig.tight_layout(pad=0)
     cmap = mpl.colormaps['tab20']
     ax.set_aspect('equal')
-    ax.scatter(initial[0], initial[1], s=20, color='k')
     for sk in range(rollout.shape[1]):
         for s in range(rollout.shape[2]):
             points = rollout[:, sk, s, :2]
-            ax.scatter(points[:, 0], points[:, 1], s=10, color=cmap(sk))
+            ax.scatter(points[:, 0], points[:, 1], s=5, color=cmap(sk))
+    ax.scatter(initial[0], initial[1], s=20, color='k')
     fig.canvas.draw()
     img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
     img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
