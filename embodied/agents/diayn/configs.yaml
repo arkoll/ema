@@ -115,6 +115,7 @@ defaults:
   goal_reward: cosine_max
   goal_encoder: {layers: 4, units: 512, act: elu, norm: layer, dist: onehot, outscale: 0.1, unimix: 0.0, inputs: [goal]}
   goal_decoder: {layers: 4, units: 512, act: elu, norm: layer, dist: mse, outscale: 0.1, inputs: [skill]}
+  landmark_shape: [100]
   worker_goals: [manager]
   jointly: new
   vae_imag: False
@@ -218,6 +219,7 @@ diayn:
   skill_shape: [20]
   worker_inputs: [deter, stoch, skill]
   expl_rewards.disag: 1.0
+  goal_decoder: {layers: 4, units: 512, act: elu, norm: layer, dist: mse, outscale: 0.1, inputs: [landmark]}
 
 debug:
 

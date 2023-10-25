@@ -34,6 +34,17 @@ class DIAYN(tfutils.Module):
             'diayn': agent.VFunction(self.reward, wconfig),
         }, {'diayn': 1.0}, act_space, wconfig)
 
+        shape = config.landmark_shape
+        self.landmark_prior = tfutils.OneHotDist(tf.zeros(shape))
+        self.feat = nets.Input(['deter'])
+        self.goal_shape = (self.config.rssm.deter,)
+        self.goal_enc = nets.MLP(shape, dims='context', **config.goal_encoder)
+        self.goal_dec = nets.MLP(
+            self.goal_shape, dims='context', **self.config.goal_decoder
+        )
+        self.goal_kl = tfutils.AutoAdapt((), **self.config.encdec_kl)
+        self.goal_opt = tfutils.Optimizer('goal', **config.encdec_opt)
+
     def initial(self, batch_size):
         return {
             'step': tf.zeros((batch_size,), tf.int64),
@@ -63,6 +74,7 @@ class DIAYN(tfutils.Module):
 
     def train(self, imagine, start, data):
         metrics = {}
+        metrics.update(self.train_vae_replay(data))
         skill = tf.squeeze(self.prior.sample((start['action'].shape[0],)))
         start = start.copy()
         sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)
@@ -79,6 +91,27 @@ class DIAYN(tfutils.Module):
         mets = self.worker.update(traj, tape)
         metrics.update({f'worker_{k}': v for k, v in mets.items()})
         return None, metrics
+    
+    def train_vae_replay(self, data):
+        metrics = {}
+        feat = self.feat(data).astype(tf.float32)
+        goal = context = feat
+        with tf.GradientTape() as tape:
+            enc = self.goal_enc({'goal': goal, 'context': context})
+            dec = self.goal_dec({'landmark': enc.sample(), 'context': context})
+            rec = -dec.log_prob(tf.stop_gradient(goal))
+            if self.config.goal_kl:
+                kl = tfd.kl_divergence(enc, self.landmark_prior)
+                kl, mets = self.goal_kl(kl)
+                metrics.update({f'goalkl_{k}': v for k, v in mets.items()})
+                assert rec.shape == kl.shape, (rec.shape, kl.shape)
+            else:
+                kl = 0.0
+            loss = (rec + kl).mean()
+        metrics.update(self.goal_opt(tape, loss, [self.goal_enc, self.goal_dec]))
+        metrics['goalrec_mean'] = rec.mean()
+        metrics['goalrec_std'] = rec.std()
+        return metrics
 
     def report(self, data):
         states, _ = self.wm.rssm.observe(
@@ -112,4 +145,15 @@ class DIAYN(tfutils.Module):
         rollout = decoder(traj)['absolute_position'].mode()
         length = 1 + self.config.worker_report_horizon
         rollout = tf.reshape(rollout, (length, n_skills, n_samp, -1))
-        return {'skill_map': img_data, 'skill_trajs': (initial, rollout)}
+
+        landmarks = tf.eye(self.config.landmark_shape[0])
+        goals = self.goal_dec(
+            {'landmark': landmarks, 'context': landmarks}
+        ).mode()
+        goals = decoder(
+            {'deter': goals, 'stoch': self.wm.rssm.get_stoch(goals)}
+        )['absolute_position'].mode()
+        return {
+            'skill_map': img_data, 'skill_trajs': (initial, rollout),
+            'landmarks': goals
+        }
