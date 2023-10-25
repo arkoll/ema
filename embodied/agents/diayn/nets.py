@@ -138,6 +138,11 @@ class RSSM(tfutils.Module):
         stats = self._stats_layer('img_stats', x)
         dist = self.get_dist(stats)
         return self._cast(dist.mode())
+    
+    def get_stats(self, deter):
+        x = self.get('img_out', Dense, **self._kw)(deter)
+        stats = self._stats_layer('img_stats', x)
+        return stats
 
     def _gru(self, x, deter):
         x = tf.concat([deter, x], -1)
