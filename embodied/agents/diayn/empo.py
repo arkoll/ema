@@ -16,6 +16,8 @@ class DIAYN(tfutils.Module):
     def __init__(self, wm, act_space, config):
         self.config = config
         self.wm = wm
+
+        # DIAYN skills
         skills = self.config.skill_shape[0]
         probs = tf.fill([1, skills], 1 / skills)
         self.prior = tfutils.OneHotDist(probs=probs)
@@ -26,6 +28,7 @@ class DIAYN(tfutils.Module):
         )[1:]
         self.opt = tfutils.Optimizer('skill', **config.skill_opt)
 
+        # DIAYN Worker
         wconfig = config.update({
             'actor.inputs': self.config.worker_inputs,
             'critic.inputs': self.config.worker_inputs,
@@ -34,6 +37,7 @@ class DIAYN(tfutils.Module):
             'diayn': agent.VFunction(self.reward, wconfig),
         }, {'diayn': 1.0}, act_space, wconfig)
 
+        # VAE landmarks
         shape = config.landmark_shape
         self.landmark_prior = tfutils.OneHotDist(tf.zeros(shape))
         self.feat = nets.Input(['deter'])
@@ -45,6 +49,16 @@ class DIAYN(tfutils.Module):
         self.goal_kl = tfutils.AutoAdapt((), **self.config.encdec_kl)
         self.goal_opt = tfutils.Optimizer('goal', **config.encdec_opt)
 
+        # Explorer
+        self.expl_reward = expl.Disag(wm, act_space, config)
+        econfig = config.update({
+            'discount': config.expl_discount,
+            'retnorm': config.expl_retnorm,
+        })
+        self.explorer = agent.ImagActorCritic({
+            'expl': agent.VFunction(self.expl_reward, econfig),
+        }, {'expl': 1.0}, act_space, config)
+
     def initial(self, batch_size):
         return {
             'step': tf.zeros((batch_size,), tf.int64),
@@ -54,27 +68,35 @@ class DIAYN(tfutils.Module):
         }
     
     def policy(self, latent, carry, imag=False):
-        duration = self.config.train_skill_duration if imag else (
-            self.config.env_skill_duration
-        )
+        # duration = self.config.train_skill_duration if imag else (
+        #     self.config.env_skill_duration
+        # )
         sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)
-        update = (carry['step'] % duration) == 0
-        switch = lambda x, y: (
-            tf.einsum('i,i...->i...', 1 - update.astype(x.dtype), x) +
-            tf.einsum('i,i...->i...', update.astype(x.dtype), y)
-        )
-        skill = sg(switch(
-            carry['skill'],
-            tf.squeeze(self.prior.sample((carry['skill'].shape[0],)))
-        ))
-        dist = self.worker.actor(sg({**latent, 'skill': skill}))
+        # update = (carry['step'] % duration) == 0
+        # switch = lambda x, y: (
+        #     tf.einsum('i,i...->i...', 1 - update.astype(x.dtype), x) +
+        #     tf.einsum('i,i...->i...', update.astype(x.dtype), y)
+        # )
+        # skill = sg(switch(
+        #     carry['skill'],
+        #     tf.squeeze(self.prior.sample((carry['skill'].shape[0],)))
+        # ))
+        # dist = self.worker.actor(sg({**latent, 'skill': skill}))
+        dist = self.explorer.actor(sg({**latent}))
         outs = {'action': dist}
-        carry = {'step': carry['step'] + 1, 'skill': skill}
+        carry = {'step': carry['step'] + 1, 'skill': carry['skill']}
         return outs, carry
 
     def train(self, imagine, start, data):
         metrics = {}
+        # Disagreement
+        metrics.update(self.expl_reward.train(data))
+        # Landmarks
         metrics.update(self.train_vae_replay(data))
+        # Explorer
+        traj, mets = self.explorer.train(imagine, start, data)
+        metrics.update({f'explorer_{k}': v for k, v in mets.items()})
+        # DIAYN
         skill = tf.squeeze(self.prior.sample((start['action'].shape[0],)))
         start = start.copy()
         sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)

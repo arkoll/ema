@@ -213,12 +213,8 @@ diayn:
   decoder: {mlp_keys: '(absolute_position|walker/target_0)', cnn_keys: 'image'}
   train.log_keys_max: '^log_.*'
   task_behavior: DIAYN
-  expl_behavior: Explore
-  discount: 0.99
-  imag_discount: 0.99
   skill_shape: [20]
   worker_inputs: [deter, stoch, skill]
-  expl_rewards.disag: 1.0
   goal_decoder: {layers: 4, units: 512, act: elu, norm: layer, dist: mse, outscale: 0.1, inputs: [landmark]}
 
 debug:
