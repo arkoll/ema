@@ -49,13 +49,17 @@ def plot_trajs(initial, rollout):
     return img
 
 
-def plot_landmarks(points):
+def plot_landmarks(goals, reward, max_traj):
     fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
     cmap = mpl.colormaps['viridis']
     ax.set_aspect('equal')
-    n_points = points.shape[0]
-    for g in range(n_points):
-        ax.scatter(points[g, 0], points[g, 1], s=20, color=cmap(g / n_points))
+    indices = np.argsort(reward)
+    n_points = len(reward)
+    ax.plot(
+        max_traj[:, :, 0], max_traj[:, :, 1], color='r', alpha=0.3, zorder=1
+    )
+    for i, g in enumerate(indices):
+        ax.scatter(goals[g, 0], goals[g, 1], s=20, color=cmap(i / n_points))
     fig.canvas.draw()
     img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
     img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
@@ -72,7 +76,7 @@ def postprocess_report(data):
         if 'trajs' in key:
             data[key] = plot_trajs(*value)
         if 'landmark' in key:
-            data[key] = plot_landmarks(value)
+            data[key] = plot_landmarks(*value)
     return data
 
 

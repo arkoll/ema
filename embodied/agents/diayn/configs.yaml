@@ -156,6 +156,10 @@ defaults:
   skill_opt: {opt: adam, lr: 1e-4, eps: 1e-6, clip: 100.0, wd: 1e-2, wd_pattern: 'kernel'}
   skill_samples: 5
 
+  # Goals
+  expl_samples: 10
+  expl_horizon: 10
+
 dmlab:
 
   task: dmlab_rooms_collect_good_objects_train

@@ -130,10 +130,42 @@ class DIAYN(tfutils.Module):
             else:
                 kl = 0.0
             loss = (rec + kl).mean()
-        metrics.update(self.goal_opt(tape, loss, [self.goal_enc, self.goal_dec]))
+        metrics.update(
+            self.goal_opt(tape, loss, [self.goal_enc, self.goal_dec])
+        )
         metrics['goalrec_mean'] = rec.mean()
         metrics['goalrec_std'] = rec.std()
         return metrics
+    
+    def eval_goals(self, goals):
+        start = {
+            'deter': tf.cast(goals, tf.float16),
+            'stoch': self.wm.rssm.get_stoch(goals),
+            **self.wm.rssm.get_stats(goals)
+        }
+        n_goals = goals.shape[0]
+        start['is_terminal'] = tf.zeros(n_goals)
+        samples = self.config.expl_samples
+        start = {
+            k: tf.repeat(v, samples, 0) for k, v in start.items()
+        }
+        explorer = lambda s: self.explorer.actor({**s}).sample()
+        traj = self.wm.imagine(explorer, start, self.config.expl_horizon)
+        reward = self.expl_reward(traj)
+
+        length = self.config.expl_horizon
+        reward = tf.reshape(reward, (length, n_goals, samples, -1))
+        reward = tf.squeeze(reward.mean([0, 2]))
+        max_reward_ind = tf.argsort(reward)[-1]
+        decoder = self.wm.heads['decoder']
+        traj = {
+            k: tf.reshape(
+                v, (length + 1, n_goals, samples,) + v.shape[2:]
+            )[:, max_reward_ind] 
+            for k, v in traj.items()
+        }
+        traj = decoder(traj)['absolute_position'].mode()
+        return reward, traj
 
     def report(self, data):
         states, _ = self.wm.rssm.observe(
@@ -172,10 +204,11 @@ class DIAYN(tfutils.Module):
         goals = self.goal_dec(
             {'landmark': landmarks, 'context': landmarks}
         ).mode()
+        reward, max_traj = self.eval_goals(goals)
         goals = decoder(
             {'deter': goals, 'stoch': self.wm.rssm.get_stoch(goals)}
         )['absolute_position'].mode()
         return {
             'skill_map': img_data, 'skill_trajs': (initial, rollout),
-            'landmarks': goals
+            'landmarks': (goals, reward, max_traj)
         }
