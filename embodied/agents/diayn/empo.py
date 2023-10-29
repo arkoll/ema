@@ -156,15 +156,15 @@ class DIAYN(tfutils.Module):
         length = self.config.expl_horizon
         reward = tf.reshape(reward, (length, n_goals, samples, -1))
         reward = tf.squeeze(reward.mean([0, 2]))
-        max_reward_ind = tf.argsort(reward)[-1]
+        max_ind = tf.argmax(reward)
         decoder = self.wm.heads['decoder']
         traj = {
-            k: tf.reshape(
+            k: tf.gather(tf.reshape(
                 v, (length + 1, n_goals, samples,) + v.shape[2:]
-            )[:, max_reward_ind] 
+            ), [max_ind], axis=1) 
             for k, v in traj.items()
         }
-        traj = decoder(traj)['absolute_position'].mode()
+        traj = tf.squeeze(decoder(traj)['absolute_position'].mode())
         return reward, traj
 
     def report(self, data):
