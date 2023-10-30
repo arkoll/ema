@@ -160,6 +160,9 @@ defaults:
   # Goals
   expl_samples: 10
   expl_horizon: 5
+  achiever_inputs: [deter, stoch, goal]
+  goal_epsilon: 10.
+  goal_shift_prob: 0.3
 
 dmlab:
 

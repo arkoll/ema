@@ -37,6 +37,15 @@ class DIAYN(tfutils.Module):
             'diayn': agent.VFunction(self.reward, wconfig),
         }, {'diayn': 1.0}, act_space, wconfig)
 
+        # Goal achiever
+        aconfig = config.update({
+            'actor.inputs': self.config.achiever_inputs,
+            'critic.inputs': self.config.achiever_inputs,
+        })
+        self.achiever = agent.ImagActorCritic({
+            'goal': agent.VFunction(lambda s: s['reward_goal'], aconfig),
+        }, {'goal': 1.0}, act_space, aconfig)
+
         # VAE landmarks
         shape = config.landmark_shape
         self.landmark_prior = tfutils.OneHotDist(tf.zeros(shape))
@@ -96,6 +105,9 @@ class DIAYN(tfutils.Module):
         # Explorer
         traj, mets = self.explorer.train(imagine, start, data)
         metrics.update({f'explorer_{k}': v for k, v in mets.items()})
+        # Achiever
+        mets = self.train_achiever(imagine, start)
+        metrics.update({f'achiever_{k}': v for k, v in mets.items()})
         # DIAYN
         skill = tf.squeeze(self.prior.sample((start['action'].shape[0],)))
         start = start.copy()
@@ -113,6 +125,35 @@ class DIAYN(tfutils.Module):
         mets = self.worker.update(traj, tape)
         metrics.update({f'worker_{k}': v for k, v in mets.items()})
         return None, metrics
+    
+    def train_achiever(self, imagine, start):
+        start = start.copy()
+        goal = start['deter']
+        shift = tfd.Geometric(
+            probs=tf.fill([goal.shape[0]], self.config.goal_shift_prob)
+        ).sample().astype(tf.int32)
+        indices = tf.range(goal.shape[0], dtype=tf.int32)
+        goal_indices = tf.math.floormod(indices + shift + 1, goal.shape[0])
+        goal = tf.gather(goal, goal_indices)
+        
+        sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)
+        with tf.GradientTape(persistent=True) as tape:
+            achiever = lambda s: self.achiever.actor(
+                sg({**s, 'goal': goal,})
+            ).sample()
+            traj = imagine(achiever, start, self.config.imag_horizon)
+            traj['goal'] = tf.repeat(
+                goal[None], 1 + self.config.imag_horizon, 0
+            )
+            traj['reward_goal'] = self.goal_reward(traj['goal'], traj['deter'])
+        mets = self.achiever.update(traj, tape)
+        success = tf.reduce_sum(
+            (traj['reward_goal'] > -1).astype(tf.int16), axis=0
+        )
+        success = tf.reduce_mean((success > 0).astype(tf.int16))
+        mets['success'] = success
+        mets['mean_shift'] = tf.reduce_mean(shift + 1)
+        return mets
     
     def train_vae_replay(self, data):
         metrics = {}
@@ -166,6 +207,15 @@ class DIAYN(tfutils.Module):
         }
         traj = tf.squeeze(decoder(traj)['absolute_position'].mode())
         return reward, traj
+    
+    def goal_reward(self, goal, state):
+        goal = tf.stop_gradient(goal.astype(tf.float32))
+        delta_2 = tf.math.squared_difference(goal, state.astype(tf.float32))
+        eps = tf.math.square(self.config.goal_epsilon * goal)
+        distance = tf.exp(
+            -tf.reduce_sum(tf.math.divide_no_nan(delta_2, eps), -1)
+        ) - 1
+        return distance[1:]
 
     def report(self, data):
         states, _ = self.wm.rssm.observe(
