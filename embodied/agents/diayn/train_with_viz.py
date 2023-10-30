@@ -8,20 +8,22 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 
 
-def plot_traj(coords, r_coords, skills, min_lim, max_lim):
-    fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=500)
-    fig.tight_layout(pad=0)
-    cmap = mpl.colormaps['tab20']
-    ax[0].set_aspect('equal')
-    ax[0].scatter(coords[:, 0], coords[:, 1], s=10, color=cmap(skills))
-    ax[0].set_xlim(min_lim[0], max_lim[0])
-    ax[0].set_ylim(min_lim[1], max_lim[1])
-    ax[1].set_aspect('equal')
-    ax[1].scatter(
-        r_coords[:, 0], r_coords[:, 1], s=10, color=cmap(skills)
-    )
-    ax[1].set_xlim(min_lim[0], max_lim[0])
-    ax[1].set_ylim(min_lim[1], max_lim[1])
+def plot_goals(skill_goals):
+    fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=500)
+    cmap = mpl.colormaps['jet']
+    ax.set_aspect('equal')
+    steps, n_skills, *_ = skill_goals.shape
+    for step in range(steps):
+        for sk in range(n_skills):
+            ax.scatter(
+                skill_goals[step, sk, :, 0], skill_goals[step, sk, :, 1], s=10,
+                color=cmap(step / steps), marker=f'${step}$'
+            )
+    for sk in range(n_skills):
+        ax.scatter(
+            skill_goals[0, sk, :, 0], skill_goals[0, sk, :, 1], s=30,
+            color='k', marker='o'
+        )
     fig.canvas.draw()
     img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
     img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
@@ -71,11 +73,11 @@ def plot_landmarks(goals, reward, max_traj):
 
 def postprocess_report(data):
     for key, value in data.items():
-        if 'map' in key:
-            data[key] = plot_traj(*value)
-        if 'trajs' in key:
+        if 'skill_goals' in key:
+            data[key] = plot_goals(value)
+        if 'skill_trajs' in key:
             data[key] = plot_trajs(*value)
-        if 'landmark' in key:
+        if 'landmarks' in key:
             data[key] = plot_landmarks(*value)
     return data
 
@@ -204,25 +206,6 @@ def train_with_viz(agent, env, train_replay, eval_replay, logger, args):
     policy = lambda *args: agent.policy(
             *args, mode='explore' if should_expl(step) else 'train')
     while step < args.steps:
-        maps = collections.defaultdict(list)
-        for _ in range(args.eval_samples):
-            for key, value in agent.report(next(dataset_train)).items():
-                if 'map' in key:
-                    maps['coords'].append(value[0])
-                    maps['r_coords'].append(value[1])
-                    maps['skills'].append(value[2])
-                    maps['min_lim'].append(value[3])
-                    maps['max_lim'].append(value[4])
-        if len(maps) > 0:
-            maps = {k: np.concatenate(v, 0) for k, v in maps.items()}
-            maps['min_lim'] = maps['min_lim'].reshape(
-                (args.eval_samples, -1)
-            ).min(0)
-            maps['max_lim'] = maps['max_lim'].reshape(
-                (args.eval_samples, -1)
-            ).max(0)
-            img = plot_traj(**maps)
-            logger.add({'eval/skills_map': img})
         logger.write()
         driver(policy, steps=args.eval_every)
         checkpoint.save()

@@ -155,10 +155,11 @@ defaults:
   skill_encoder: {layers: 4, units: 512, act: elu, norm: layer, dist: onehot, outscale: 0.1, unimix: 0.0, inputs: [deter, stoch]}
   skill_opt: {opt: adam, lr: 1e-4, eps: 1e-6, clip: 100.0, wd: 1e-2, wd_pattern: 'kernel'}
   skill_samples: 5
+  skill_horizon: 100
 
   # Goals
   expl_samples: 10
-  expl_horizon: 10
+  expl_horizon: 5
 
 dmlab:
 

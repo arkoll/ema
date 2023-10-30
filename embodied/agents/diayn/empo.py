@@ -169,37 +169,41 @@ class DIAYN(tfutils.Module):
 
     def report(self, data):
         states, _ = self.wm.rssm.observe(
-            self.wm.encoder(data), data['action'], data['is_first']
+            self.wm.encoder(data)[:1, :5], data['action'][:1, :5],
+            data['is_first'][:1, :5]
         )
-        decoder = self.wm.heads['decoder']
-        skills = self.skill_enc(states).mode()
-        reshape = lambda x: x.reshape([x.shape[0] * x.shape[1],] + x.shape[2:])
-        skills = reshape(self.skill_enc(states).mode())
-        r_coords = reshape(data['absolute_position'])
-        coords = reshape(decoder(states)['absolute_position'].mode())
-        skills = tf.where(skills)[:, 1]
-        all_coord = tf.concat([r_coords, coords], 0)
-        min_lim = tf.reduce_min(all_coord, 0)[:2]
-        max_lim = tf.reduce_max(all_coord, 0)[:2]
-        img_data = (coords, r_coords, skills, min_lim, max_lim)
-
-        start = {k: v[:1, 4] for k, v in states.items()}
-        start['is_terminal'] = data['is_terminal'][:1, 4]
         n_skills = self.config.skill_shape[0]
         n_samp = self.config.skill_samples
+        skill = tf.repeat(tf.eye(n_skills), n_samp, 0)
+        worker = lambda s: self.worker.actor({**s, 'skill': skill,}).sample()
+        decoder = self.wm.heads['decoder']
+        
+        # Imagine skill trajs from random state
+        start = {k: v[:1, 4] for k, v in states.items()}
+        start['is_terminal'] = data['is_terminal'][:1, 4]
         start = {
             k: tf.repeat(v, n_skills * n_samp, 0) for k, v in start.items()
         }
-        skill = tf.repeat(tf.eye(n_skills), n_samp, 0)
-        worker = lambda s: self.worker.actor({**s, 'skill': skill,}).sample()
-        traj = self.wm.imagine(
-            worker, start, self.config.worker_report_horizon
-        )
+        traj = self.wm.imagine(worker, start, self.config.worker_report_horizon)
         initial = decoder(start)['absolute_position'].mode()[0]
         rollout = decoder(traj)['absolute_position'].mode()
         length = 1 + self.config.worker_report_horizon
         rollout = tf.reshape(rollout, (length, n_skills, n_samp, -1))
+        outputs = {'skill_trajs': (initial, rollout)}
 
+        # Imagine skill trajs from start
+        start = self.wm.rssm.initial(n_skills * n_samp)
+        start['is_terminal'] = tf.zeros(n_skills * n_samp)
+        traj = self.wm.imagine(worker, start, self.config.skill_horizon)
+        indices = tf.range(0, self.config.skill_horizon + 1, 10)
+        traj = {k: tf.gather(v, indices, axis=0) for k, v in traj.items()}
+        skill_goals = decoder(traj)['absolute_position'].mode()
+        skill_goals = tf.reshape(
+            skill_goals, (len(indices), n_skills, n_samp, -1)
+        )
+        outputs['skill_goals'] = skill_goals
+
+        # Eval VAE goals
         landmarks = tf.eye(self.config.landmark_shape[0])
         goals = self.goal_dec(
             {'landmark': landmarks, 'context': landmarks}
@@ -208,7 +212,5 @@ class DIAYN(tfutils.Module):
         goals = decoder(
             {'deter': goals, 'stoch': self.wm.rssm.get_stoch(goals)}
         )['absolute_position'].mode()
-        return {
-            'skill_map': img_data, 'skill_trajs': (initial, rollout),
-            'landmarks': (goals, reward, max_traj)
-        }
+        outputs['landmarks'] = (goals, reward, max_traj)
+        return outputs
