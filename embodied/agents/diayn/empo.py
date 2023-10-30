@@ -150,7 +150,7 @@ class DIAYN(tfutils.Module):
         success = tf.reduce_sum(
             (traj['reward_goal'] > -1).astype(tf.int16), axis=0
         )
-        success = tf.reduce_mean((success > 0).astype(tf.int16))
+        success = tf.math.count_nonzero(success) / len(success)
         mets['success'] = success
         mets['mean_shift'] = tf.reduce_mean(shift + 1)
         return mets
@@ -219,8 +219,8 @@ class DIAYN(tfutils.Module):
 
     def report(self, data):
         states, _ = self.wm.rssm.observe(
-            self.wm.encoder(data)[:1, :5], data['action'][:1, :5],
-            data['is_first'][:1, :5]
+            self.wm.encoder(data)[:1], data['action'][:1],
+            data['is_first'][:1]
         )
         n_skills = self.config.skill_shape[0]
         n_samp = self.config.skill_samples
@@ -240,6 +240,21 @@ class DIAYN(tfutils.Module):
         length = 1 + self.config.worker_report_horizon
         rollout = tf.reshape(rollout, (length, n_skills, n_samp, -1))
         outputs = {'skill_trajs': (initial, rollout)}
+
+        # Imagine goal trajs from random state
+        start = {k: v[:1, 4] for k, v in states.items()}
+        start['is_terminal'] = data['is_terminal'][:1, 4]
+        start = {
+            k: tf.repeat(v, n_samp, 0) for k, v in start.items()
+        }
+        goal = tf.repeat(states['deter'][:1, -1], n_samp, 0)
+        achiever = lambda s: self.achiever.actor({**s, 'goal': goal,}).sample()
+        horizon = states['deter'].shape[1] - 5
+        traj = self.wm.imagine(achiever, start, horizon)
+        goal_rollout = decoder(traj)['absolute_position'].mode()
+        rec = {k: v[:1, 4:] for k, v in states.items()}
+        rec = decoder(rec)['absolute_position'].mode()[0]
+        outputs['goal_trajs'] = (rec, goal_rollout)
 
         # Imagine skill trajs from start
         start = self.wm.rssm.initial(n_skills * n_samp)

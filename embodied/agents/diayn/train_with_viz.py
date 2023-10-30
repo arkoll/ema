@@ -51,6 +51,22 @@ def plot_trajs(initial, rollout):
     return img
 
 
+def plot_gtrajs(rec, goal_rollout):
+    fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
+    cmap = mpl.colormaps['tab20']
+    ax.set_aspect('equal')
+    ax.plot(rec[:, 0], rec[:, 1], color='k')
+    for s in range(goal_rollout.shape[1]):
+        ax.plot(goal_rollout[:, s, 0], goal_rollout[:, s, 1], color='r')
+    fig.canvas.draw()
+    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
+    img = np.transpose(img, [1, 2, 0])
+    img = img.astype(float) / 255.  
+    plt.close(fig)
+    return img
+
+
 def plot_landmarks(goals, reward, max_traj):
     fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
     cmap = mpl.colormaps['viridis']
@@ -77,6 +93,8 @@ def postprocess_report(data):
             data[key] = plot_goals(value)
         if 'skill_trajs' in key:
             data[key] = plot_trajs(*value)
+        if 'goal_trajs' in key:
+            data[key] = plot_gtrajs(*value)
         if 'landmarks' in key:
             data[key] = plot_landmarks(*value)
     return data
