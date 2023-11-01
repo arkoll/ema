@@ -51,13 +51,35 @@ def plot_trajs(initial, rollout):
     return img
 
 
-def plot_gtrajs(rec, goal_rollout):
+def plot_episode_traj(rollout, episode):
     fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
-    cmap = mpl.colormaps['tab20']
     ax.set_aspect('equal')
-    ax.plot(rec[:, 0], rec[:, 1], color='k')
+    ax.plot(rollout[:, 0], rollout[:, 1], color='k')
+    ax.plot(episode[:, 0], episode[:, 1], color='g')
+    ax.scatter(episode[0, 0], episode[0, 1], s=50, color='r', marker='*')
+    ax.scatter(rollout[0, 0], rollout[0, 1], s=50, color='r', marker='*')
+    fig.canvas.draw()
+    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
+    img = np.transpose(img, [1, 2, 0])
+    img = img.astype(float) / 255. 
+    plt.close(fig)
+    return img
+
+
+def plot_gtrajs(true_traj, rec, goal_rollout):
+    fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
+    ax.set_aspect('equal')
+    ax.plot(true_traj[:, 0], true_traj[:, 1], color='g')
+    ax.plot(rec[:, 0], rec[:, 1], color='r', alpha=0.5)
     for s in range(goal_rollout.shape[1]):
-        ax.plot(goal_rollout[:, s, 0], goal_rollout[:, s, 1], color='r')
+        ax.plot(
+            goal_rollout[:, s, 0], goal_rollout[:, s, 1], color='k', alpha=0.1
+        )
+    ax.scatter(rec[4, 0], rec[4, 1], color='k')
+    ax.scatter(true_traj[4, 0], true_traj[4, 1], color='k')
+    ax.scatter(rec[-1, 0], rec[-1, 1], color='b', marker='*')
+    ax.scatter(true_traj[-1, 0], true_traj[-1, 1], color='b', marker='*')
     fig.canvas.draw()
     img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
     img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
@@ -147,6 +169,10 @@ def train_with_viz(agent, env, train_replay, eval_replay, logger, args):
                 if key == 'none':
                     continue
                 metrics[f'policy_{key}'] = ep[key]
+                if 'log_position' in ep:
+                    metrics[f'policy_{key}_position'] = plot_episode_traj(
+                        ep['log_position'], ep['absolute_position']
+                    )
                 if 'log_goal' in ep:
                     if ep['image'].shape == ep['log_goal'].shape:
                         goal = (255 * ep['log_goal']).astype(np.uint8)

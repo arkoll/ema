@@ -93,6 +93,9 @@ class DIAYN(tfutils.Module):
         # dist = self.worker.actor(sg({**latent, 'skill': skill}))
         dist = self.explorer.actor(sg({**latent}))
         outs = {'action': dist}
+        outs['log_position'] = self.wm.heads['decoder'](latent)[
+            'absolute_position'
+        ].mode()
         carry = {'step': carry['step'] + 1, 'skill': carry['skill']}
         return outs, carry
 
@@ -252,9 +255,11 @@ class DIAYN(tfutils.Module):
         horizon = states['deter'].shape[1] - 5
         traj = self.wm.imagine(achiever, start, horizon)
         goal_rollout = decoder(traj)['absolute_position'].mode()
-        rec = {k: v[:1, 4:] for k, v in states.items()}
+        rec = {k: v[:1] for k, v in states.items()}
         rec = decoder(rec)['absolute_position'].mode()[0]
-        outputs['goal_trajs'] = (rec, goal_rollout)
+        outputs['goal_trajs'] = (
+            data['absolute_position'][0], rec, goal_rollout
+        )
 
         # Imagine skill trajs from start
         start = self.wm.rssm.initial(n_skills * n_samp)

@@ -219,7 +219,7 @@ diayn:
   task: loconav_ball_maze_s
   encoder: {mlp_keys: '(absolute_position|walker/target_0)', cnn_keys: 'image'}
   decoder: {mlp_keys: '(absolute_position|walker/target_0)', cnn_keys: 'image'}
-  train.log_keys_max: '^log_.*'
+  train.log_keys_max: '^log_cover.*'
   task_behavior: DIAYN
   skill_shape: [20]
   worker_inputs: [deter, stoch, skill]
