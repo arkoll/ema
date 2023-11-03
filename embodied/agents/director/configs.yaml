@@ -1,14 +1,15 @@
 defaults:
 
   # Trainer
+  log_wandb: True
   logdir: /dev/null
-  run: train_with_viz
+  run: train_gceval
   seed: 0
   task: dummy_discrete
-  env: {amount: 4, parallel: process, daemon: False, repeat: 1, size: [64, 64], camera: -1, gray: False, length: 0, discretize: 0, lives: False, sticky: True, episodic: True, restart: True, again: False, termination: False, weaker: 1.0, seed: 0}
+  env: {amount: 1, parallel: none, daemon: False, repeat: 1, size: [64, 64], camera: -1, gray: False, length: 0, discretize: 0, lives: False, sticky: True, episodic: True, restart: True, again: False, termination: False, weaker: 1.0, seed: 0}
   replay: fixed
   replay_size: 1e6
-  replay_chunk: 64
+  replay_chunk: 50
   replay_fixed: {prio_starts: 0.0, prio_ends: 1.0, sync: 0}
   replay_consec: {sync: 0}
   replay_prio: {prio_starts: 0.0, prio_ends: 1.0, sync: 0, fraction: 0.1, softmax: False, temp: 1.0, constant: 0.0, exponent: 0.5}
@@ -23,7 +24,7 @@ defaults:
     eval_every: 3e4
     eval_eps: 1
     eval_samples: 1
-    train_every: 16
+    train_every: 5
     train_steps: 1
     train_fill: 1e4
     eval_fill: 1e4
@@ -63,8 +64,8 @@ defaults:
   wmkl_balance: 0.8
 
   # Actor Critic
-  actor: {layers: 4, units: 512, act: elu, norm: layer, minstd: 0.03, maxstd: 1.0, outscale: 0.1, unimix: 0.01, inputs: [deter, stoch]}
-  critic: {layers: 4, units: 512, act: elu, norm: layer, dist: symlog, outscale: 0.1, inputs: [deter, stoch]}
+  actor: {layers: 4, units: 400, act: elu, norm: layer, minstd: 0.03, maxstd: 1.0, outscale: 0.1, unimix: 0.01, inputs: [deter, stoch]}
+  critic: {layers: 4, units: 400, act: elu, norm: layer, dist: symlog, outscale: 0.1, inputs: [deter, stoch]}
   actor_opt: {opt: adam, lr: 1e-4, eps: 1e-6, clip: 100.0, wd: 1e-2, wd_pattern: 'kernel'}
   critic_opt: {opt: adam, lr: 1e-4, eps: 1e-6, clip: 100.0, wd: 1e-2, wd_pattern: 'kernel'}
   actor_dist_disc: onehot
@@ -72,7 +73,7 @@ defaults:
   episodic: True
   discount: 0.99
   imag_discount: 0.99
-  imag_horizon: 16
+  imag_horizon: 15
   imag_unroll: True
   critic_return: gve
   actor_return: gve
@@ -94,9 +95,9 @@ defaults:
   rewnorm_discount: False
 
   # HRL
-  env_skill_duration: 8
-  train_skill_duration: 8
-  skill_shape: [8, 8]
+  env_skill_duration: 5
+  train_skill_duration: 5
+  skill_shape: [5, 5]
   manager_rews: {extr: 1.0, expl: 0.1, goal: 0.0}
   worker_rews: {extr: 0.0, expl: 0.0, goal: 1.0}
   worker_inputs: [deter, stoch, goal]
@@ -104,8 +105,8 @@ defaults:
   skill_proposal: manager
   goal_proposal: replay
   goal_reward: cosine_max
-  goal_encoder: {layers: 4, units: 512, act: elu, norm: layer, dist: onehot, outscale: 0.1, unimix: 0.0, inputs: [goal]}
-  goal_decoder: {layers: 4, units: 512, act: elu, norm: layer, dist: mse, outscale: 0.1, inputs: [skill]}
+  goal_encoder: {layers: 3, units: 400, act: elu, norm: layer, dist: onehot, outscale: 0.1, unimix: 0.0, inputs: [goal]}
+  goal_decoder: {layers: 3, units: 400, act: elu, norm: layer, dist: mse, outscale: 0.1, inputs: [skill]}
   worker_goals: [manager]
   jointly: new
   vae_imag: False
@@ -115,7 +116,7 @@ defaults:
   encdec_opt: {opt: adam, lr: 1e-4, eps: 1e-6, clip: 100.0, wd: 1e-2, wd_pattern: 'kernel'}
   explorer: False
   explorer_repeat: False
-  expl_rew: adver
+  expl_rew: disag
   manager_dist: onehot
   manager_grad: reinforce
   manager_actent: 0.5
@@ -128,7 +129,7 @@ defaults:
   expl_discount: 0.99
   expl_retnorm: {impl: std, decay: 0.999, max: 1e8}
   expl_scorenorm: {impl: off, decay: 0.999, max: 1e8}
-  disag_head: {layers: 4, units: 512, act: elu, norm: layer, dist: mse, inputs: [deter, stoch, action]}
+  disag_head: {layers: 4, units: 400, act: elu, norm: layer, dist: mse, inputs: [deter, stoch, action]}
   expl_opt: {opt: adam, lr: 1e-4, eps: 1e-6, clip: 100.0, wd: 1e-2}
   disag_target: [stoch]
   disag_models: 8
@@ -140,6 +141,17 @@ defaults:
   expl_dec: {layers: 4, units: 512, act: elu, norm: layer, dist: mse, outscale: 0.1}
   expl_kl: {impl: mult, scale: 0.1, target: 10.0, min: 1e-2, max: 1.0, vel: 0.1}
   expl_vae_elbo: False
+
+pointmaze:
+    task: pointmaze_simplemaze
+    grad_heads: [decoder]
+    #rssm: {units: 20, deter: 20, stoch: 2, classes: 2, act: elu, norm: layer, initial: learned2, unroll: True}
+    rssm: {units: 200, deter: 200, stoch: 8, classes: 8, act: elu, norm: layer, initial: learned2, unroll: True}
+    encoder: {mlp_keys: 'observation', cnn_keys: '$^', mlp_layers: 3, mlp_units: 400}
+    decoder: {mlp_keys: 'observation', cnn_keys: '$^', mlp_layers: 3, mlp_units: 400}
+    train.steps: 1e7
+    env.length: 50
+    batch_size: 45
 
 dmlab:
 
@@ -194,9 +206,10 @@ loconav:
 
 debug:
 
+  log_wandb: False
   env.length: 100
   env.restart: False
-  env.amount: 2
+  env.amount: 1
   env.parallel: none
   train:
     eval_every: 300
@@ -215,4 +228,4 @@ debug:
   .*\.layers: 2
   .*\.units: 64
   .*\.wd: 0.0
-  tf: {platform: gpu, jit: False}
+  tf: {platform: gpu, jit: True}

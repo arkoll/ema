@@ -16,8 +16,8 @@ class BufferDrawer():
 
     def add_traj(self, trajs):
         for traj in trajs:
-            self.buffer['goals']['x'].append(traj['real_goal'][0][0])
-            self.buffer['goals']['y'].append(traj['real_goal'][0][1])
+            # self.buffer['goals']['x'].append(traj['real_goal'][0][0])
+            # self.buffer['goals']['y'].append(traj['real_goal'][0][1])
             for xy in traj['observation'][:25]:
                 self.buffer['states']['x'].append(xy[0])
                 self.buffer['states']['y'].append(xy[1])  

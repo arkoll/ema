@@ -1,6 +1,7 @@
 import pathlib
 import sys
 import warnings
+import wandb
 
 warnings.filterwarnings('ignore', '.*box bound precision lowered.*')
 warnings.filterwarnings('ignore', '.*using stateful random seeds*')
@@ -35,6 +36,10 @@ def main(argv=None):
     args = embodied.Config(logdir=config.logdir, **config.train)
     args = args.update(expl_until=args.expl_until // config.env.repeat)
     print(config)
+    if config.log_wandb:
+        run = wandb.init(
+            project='ema', sync_tensorboard=True, config=config
+        )
 
     logdir = embodied.Path(config.logdir)
     step = embodied.Counter()
@@ -84,6 +89,16 @@ def main(argv=None):
         if config.run == 'train':
             replay = make_replay('episodes', config.replay_size)
             embodied.run.train(agent, env, replay, logger, args)
+        elif config.run == 'train_gceval':
+            eval_conf = {**config.env}
+            eval_conf['amount'] = 1
+            eval_conf['parallel'] = 'none'
+            eval_env = embodied.envs.load_env(
+                    config.task, mode='eval', logdir=logdir, **eval_conf)
+            replay = make_replay('episodes', config.replay_size)
+            embodied.run.train_gceval(
+                    agent, env, eval_env, replay, logger, args)
+            cleanup.append(eval_env)
         elif config.run == 'train_eval':
             eval_env = embodied.envs.load_env(
                     config.task, mode='eval', logdir=logdir, **config.env)

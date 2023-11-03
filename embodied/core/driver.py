@@ -54,11 +54,11 @@ class Driver:
         assert all(len(x) == len(self._env) for x in acts.values()), acts
         self._obs = self._env.step(acts)
         assert all(len(x) == len(self._env) for x in self._obs.values()), self._obs
-        if self._state is not None:
-            self._obs['real_goal'] = self._state[2]['real_goal']
-        else:
-            import tensorflow as tf
-            self._obs['real_goal'] = tf.zeros((4, 2))
+        # if self._state is not None:
+        #     self._obs['real_goal'] = self._state[2]['real_goal']
+        # else:
+        #     import tensorflow as tf
+        #     self._obs['real_goal'] = tf.zeros((4, 2))
 
         self._obs = {k: convert(v) for k, v in self._obs.items()}
         trns = {**self._obs, **acts}
@@ -175,7 +175,7 @@ class EvalDriver:
                 goal_images.extend(_goals)
                 execution_image_trajectories.extend(_executions)
 
-        if create_video:
+        if True:
             execution_image_trajectories = np.concatenate(execution_image_trajectories, 0) # num_goals x T x H x W x C
             print(execution_image_trajectories.shape)
             goal_images = np.stack(goal_images, 0) # num_goals x 1 x H x W x C
@@ -193,8 +193,8 @@ class EvalDriver:
 
 
     def _step(self, policy, goal, step=0, episode=0):
-        self._obs['goal'] = np.ones((len(self._env), 2))
-        self._obs['goal'][0] = np.array(goal)
+        self._obs['loag'] = np.ones((len(self._env), 2))
+        self._obs['loag'][0] = np.array(goal)
         acts, self._state = policy(self._obs, self._state, **self._kwargs)
         acts['reset'] = np.zeros(len(self._env), bool)
         if self._obs['is_last'].any():

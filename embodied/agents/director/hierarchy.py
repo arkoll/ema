@@ -16,7 +16,8 @@ class Hierarchy(tfutils.Module):
     def __init__(self, wm, act_space, config):
         self.wm = wm
         self.config = config
-        self.extr_reward = lambda traj: self.wm.heads['reward'](traj).mean()[1:]
+        # self.extr_reward = lambda traj: self.wm.heads['reward'](traj).mean()[1:]
+        self.extr_reward = self.loag_reward
         self.skill_space = embodied.Space(
                 np.int32 if config.goal_encoder.dist == 'onehot' else np.float32,
                 config.skill_shape)
@@ -34,6 +35,8 @@ class Hierarchy(tfutils.Module):
         mconfig = config.update({
                 'actor_grad_cont': 'reinforce',
                 'actent.target': config.manager_actent,
+                'actor.inputs': ['deter', 'stoch', 'loag'],
+                'critic.inputs': ['deter', 'stoch', 'loag']
         })
         self.manager = agent.ImagActorCritic({
                 'extr': agent.VFunction(lambda s: s['reward_extr'], mconfig),
@@ -99,8 +102,25 @@ class Hierarchy(tfutils.Module):
             })['image'].mode()
         carry = {'step': carry['step'] + 1, 'skill': skill, 'goal': goal}
         return outs, carry
+    
+    def loag_reward(self, traj):
+        loag = tf.stop_gradient(traj['loag'].astype(tf.float32))
+        feat = self.wm.heads['decoder'](traj)['observation'].mode().astype(tf.float32)
+        return -tf.math.sqrt(tf.square(loag-feat).sum(axis=2))[1:]
+    
+    def get_loag(self, data):
+        real_goal = data['observation']
+        sh = real_goal.shape
+        goal_embed = self.wm.encoder(data)
+        goal_embed = goal_embed.reshape([-1] + list(goal_embed.shape[2:]))
+        real_goal = real_goal.reshape([-1] + list(real_goal.shape[2:]))
+        ids = tf.random.shuffle(tf.range(tf.shape(goal_embed)[0]))
+        loag = tf.gather(real_goal, ids)
+        loag = tf.reshape(loag, sh)
+        return loag.reshape((45*50, 2))
 
     def train(self, imagine, start, data):
+        loag = self.get_loag(data)
         success = lambda rew: (rew[-1] > 0.7).astype(tf.float32).mean()
         metrics = {}
         if self.config.expl_rew == 'disag':
@@ -115,7 +135,7 @@ class Hierarchy(tfutils.Module):
                 goal = self.feat(traj)[-1]
                 metrics.update(self.train_worker(imagine, start, goal)[1])
         if self.config.jointly == 'new':
-            traj, mets = self.train_jointly(imagine, start)
+            traj, mets = self.train_jointly(imagine, start, loag)
             metrics.update(mets)
             metrics['success_manager'] = success(traj['reward_goal'])
             if self.config.vae_imag:
@@ -141,14 +161,14 @@ class Hierarchy(tfutils.Module):
             raise NotImplementedError(self.config.jointly)
         return None, metrics
 
-    def train_jointly(self, imagine, start):
+    def train_jointly(self, imagine, start, loag):
         start = start.copy()
         metrics = {}
         with tf.GradientTape(persistent=True) as tape:
             policy = functools.partial(self.policy, imag=True)
             traj = self.wm.imagine_carry(
                     policy, start, self.config.imag_horizon,
-                    self.initial(len(start['is_first'])))
+                    self.initial(len(start['is_first'])), loag)
             traj['reward_extr'] = self.extr_reward(traj)
             traj['reward_expl'] = self.expl_reward(traj)
             traj['reward_goal'] = self.goal_reward(traj)
@@ -459,6 +479,7 @@ class Hierarchy(tfutils.Module):
         return traj
 
     def report(self, data):
+        return {}
         metrics = {}
         for impl in ('manager', 'prior', 'replay'):
             for key, video in self.report_worker(data, impl).items():

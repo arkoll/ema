@@ -25,7 +25,7 @@ class PointMaze2D(embodied.Env):
         goal_space = gym.spaces.Box(-np.inf, np.inf, (2,), dtype=np.float32)
         return {
             'observation': ob_space,
-            'goal': goal_space,
+            # 'goal': goal_space,
             'reward': gym.spaces.Box(-np.inf, np.inf, (), dtype=np.float32),
             'is_first': gym.spaces.Box(0, 1, (), dtype=np.bool_),
             'is_last': gym.spaces.Box(0, 1, (), dtype=np.bool_),

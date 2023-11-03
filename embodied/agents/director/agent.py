@@ -18,6 +18,7 @@ class Agent(tfagent.TFAgent):
             embodied.Path(sys.argv[0]).parent / 'configs.yaml').read())
 
     def __init__(self, obs_space, act_space, step, config):
+        self.obs_shape = (2, )
         self.config = config
         self.obs_space = obs_space
         self.act_space = act_space['action']
@@ -46,22 +47,36 @@ class Agent(tfagent.TFAgent):
         obs = self.preprocess(obs)
         latent, task_state, expl_state, action = state
         embed = self.wm.encoder(obs)
+        latent.pop('loag', None)
         latent, _ = self.wm.rssm.obs_step(latent, action, embed, obs['is_first'])
         noise = self.config.expl_noise
+        if 'loag' not in obs:
+            loag = self.get_loag()
+            latent['loag'] = loag
+        else:
+            loag = obs['loag']
+            latent['loag'] = loag
         if mode == 'eval':
             noise = self.config.eval_noise
-            outs, task_state = self.task_behavior.policy(latent, task_state)
+            outs, task_state = self.task_behavior.policy(latent, task_state,  mode=mode)
             outs = {**outs, 'action': outs['action'].mode()}
         elif mode == 'explore':
-            outs, expl_state = self.expl_behavior.policy(latent, expl_state)
+            outs, expl_state = self.expl_behavior.policy(latent, expl_state,  mode=mode)
             outs = {**outs, 'action': outs['action'].sample()}
         elif mode == 'train':
-            outs, task_state = self.task_behavior.policy(latent, task_state)
+            outs, task_state = self.task_behavior.policy(latent, task_state,  mode=mode)
             outs = {**outs, 'action': outs['action'].sample()}
         outs = {**outs, 'action': tfutils.action_noise(
                 outs['action'], noise, self.act_space)}
+        latent.pop('loag', None)
         state = (latent, task_state, expl_state, outs['action'])
         return outs, state
+    
+    def get_loag(self):
+        batch_size = 1
+        shape = (batch_size, ) + self.obs_shape
+        goal = tf.random.uniform(shape, minval=0, maxval=9)
+        return goal.astype(tf.float16)
 
     @tf.function
     def train(self, data, state=None):
@@ -226,20 +241,23 @@ class WorldModel(tfutils.Module):
                 self.config.discount * traj['cont']) / self.config.discount
         return traj
 
-    def imagine_carry(self, policy, start, horizon, carry):
+    def imagine_carry(self, policy, start, horizon, carry, loag):
         first_cont = (1.0 - start['is_terminal']).astype(tf.float32)
         keys = list(self.rssm.initial(1).keys())
         start = {k: v for k, v in start.items() if k in keys}
         keys += list(carry.keys()) + ['action']
-        states = [start]
-        outs, carry = policy(start, carry)
+        states = [{**start, 'loag': loag}]
+        outs, carry = policy({**start, 'loag': loag}, carry)
         action = outs['action']
         if hasattr(action, 'sample'):
             action = action.sample()
         actions = [action]
         carries = [carry]
         for _ in range(horizon):
+            lg = states[-1].pop('loag')
             states.append(self.rssm.img_step(states[-1], actions[-1]))
+            states[-2]['loag'] = lg
+            states[-1]['loag'] = loag
             outs, carry = policy(states[-1], carry)
             action = outs['action']
             if hasattr(action, 'sample'):
@@ -282,8 +300,8 @@ class ImagActorCritic(tfutils.Module):
 
     def __init__(self, critics, scales, act_space, config):
         critics = {k: v for k, v in critics.items() if scales[k]}
-        for key, scale in scales.items():
-            assert not scale or key in critics, key
+        # for key, scale in scales.items():
+        #     assert not scale or key in critics, key
         self.critics = {k: v for k, v in critics.items() if scales[k]}
         self.scales = scales
         self.act_space = act_space
