@@ -144,8 +144,10 @@ class WorldModel(tfutils.Module):
         self.encoder = nets.MultiEncoder(shapes, **config.encoder)
         self.heads = {}
         self.heads['decoder'] = nets.MultiDecoder(shapes, **config.decoder)
-        self.heads['reward'] = nets.MLP((), **config.reward_head)
-        self.heads['cont'] = nets.MLP((), **config.cont_head)
+        if config.pred_reward:
+            self.heads['reward'] = nets.MLP((), **config.reward_head)
+        if config.pred_cont:
+            self.heads['cont'] = nets.MLP((), **config.cont_head)
         self.model_opt = tfutils.Optimizer('model', **config.model_opt)
         self.wmkl = tfutils.AutoAdapt((), **self.config.wmkl, inverse=False)
 
@@ -247,8 +249,11 @@ class WorldModel(tfutils.Module):
         transp = lambda x: {k: [x[t][k] for t in range(len(x))] for k in x[0]}
         traj = {**transp(states), **transp(carries), 'action': actions}
         traj = {k: tf.stack(v, 0) for k, v in traj.items()}
-        cont = self.heads['cont'](traj).mean()
-        cont = tf.concat([first_cont[None], cont[1:]], 0)
+        if self.config.pred_cont:
+            cont = self.heads['cont'](traj).mean()[1:]
+        else:
+            cont = tf.ones(traj['action'][:-1].shape[:-1])
+        cont = tf.concat([first_cont[None], cont], 0)
         traj['cont'] = cont
         traj['weight'] = tf.math.cumprod(
                 self.config.imag_discount * cont) / self.config.imag_discount

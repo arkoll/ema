@@ -49,10 +49,12 @@ defaults:
   data_loader: tfdata
 
   # World Model
-  grad_heads: [decoder, reward, cont]
+  grad_heads: [decoder]
   rssm: {units: 1024, deter: 1024, stoch: 32, classes: 32, act: elu, norm: layer, initial: learned2, unroll: True}
   encoder: {mlp_keys: '.*', cnn_keys: '.*', act: elu, norm: layer, mlp_layers: 4, mlp_units: 512, cnn: simple, cnn_depth: 64, cnn_kernels: [4, 4, 4, 4]}
   decoder: {mlp_keys: '.*', cnn_keys: '.*', act: elu, norm: layer, mlp_layers: 4, mlp_units: 512, cnn: simple, cnn_depth: 64, cnn_kernels: [5, 5, 6, 6], image_dist: mse, inputs: [deter, stoch]}
+  pred_reward: False
+  pred_cont: False
   reward_head: {layers: 4, units: 512, act: elu, norm: layer, dist: symlog, outscale: 0.1, inputs: [deter, stoch]}
   cont_head: {layers: 4, units: 512, act: elu, norm: layer, dist: binary, outscale: 0.1, inputs: [deter, stoch]}
   loss_scales: {kl: 1.0, image: 1.0, reward: 1.0, cont: 1.0}
