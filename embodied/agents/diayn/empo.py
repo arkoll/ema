@@ -43,8 +43,11 @@ class DIAYN(tfutils.Module):
             'critic.inputs': self.config.achiever_inputs,
         })
         self.achiever = agent.ImagActorCritic({
-            'goal': agent.VFunction(lambda s: s['reward_goal'], aconfig),
+            'goal': agent.VFunction(lambda s: self.goal_reward(s), aconfig),
         }, {'goal': 1.0}, act_space, aconfig)
+        self.dyndist = nets.MLP((), **self.config.dyndist)
+        self.dd_opt = tfutils.Optimizer('dyndist', **config.dyndist_opt)
+        self.dd_cur_idxs, self.dd_fut_idxs = self.get_future_idxs()
 
         # VAE landmarks
         shape = config.landmark_shape
@@ -129,8 +132,7 @@ class DIAYN(tfutils.Module):
         metrics.update({f'worker_{k}': v for k, v in mets.items()})
         return None, metrics
     
-    def train_achiever(self, imagine, start):
-        start = start.copy()
+    def goal_proposal(self, start):
         goal = start['deter']
         shift = tfd.Geometric(
             probs=tf.fill([goal.shape[0]], self.config.goal_shift_prob)
@@ -138,7 +140,43 @@ class DIAYN(tfutils.Module):
         indices = tf.range(goal.shape[0], dtype=tf.int32)
         goal_indices = tf.math.floormod(indices + shift + 1, goal.shape[0])
         goal = tf.gather(goal, goal_indices)
+        return goal
+    
+    def get_future_idxs(self):
+        cur_idx_list = []
+        fut_idx_list = []
+        for cur_idx in tf.range(self.config.imag_horizon):
+            for fut_idx in tf.range(cur_idx, self.config.imag_horizon):
+                cur_idx_list.append(cur_idx)
+                fut_idx_list.append(fut_idx)
+        return tf.concat(cur_idx_list, 0), tf.concat(fut_idx_list, 0)
+    
+    def dd_loss(self, traj):
+        sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)
+        indices = tfd.Categorical(
+            logits=tf.zeros(len(self.dd_cur_idxs))
+        ).sample(self.config.dd_batch_size)
+        b_ind = tfd.Categorical(
+            logits=tf.zeros(self.config.replay_chunk * self.config.batch_size)
+        ).sample(self.config.dd_batch_size)
+        c_ind = tf.stack([tf.gather(self.dd_cur_idxs, indices), b_ind], axis=1)
+        f_ind = tf.stack([tf.gather(self.dd_fut_idxs, indices), b_ind], axis=1)
         
+        state1 = tf.gather_nd(traj['deter'], c_ind)
+        state2 = tf.gather_nd(traj['deter'], f_ind)
+        goal = tf.gather(traj['goal'][0], b_ind)
+        preds = self.dyndist(sg({
+            'deter': state1, 'final': state2, 'goal': goal
+        })).mode()
+        distance = tf.stop_gradient(
+            f_ind[:, 0] - c_ind[:, 0]
+        ).astype(tf.float32)
+        loss = tf.math.squared_difference(preds, distance).mean()
+        return loss
+    
+    def train_achiever(self, imagine, start):
+        start = start.copy()
+        goal = self.goal_proposal(start)
         sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)
         with tf.GradientTape(persistent=True) as tape:
             achiever = lambda s: self.achiever.actor(
@@ -148,14 +186,15 @@ class DIAYN(tfutils.Module):
             traj['goal'] = tf.repeat(
                 goal[None], 1 + self.config.imag_horizon, 0
             )
-            traj['reward_goal'] = self.goal_reward(traj['goal'], traj['deter'])
-        mets = self.achiever.update(traj, tape)
+        with tf.GradientTape() as dd_tape:
+            dd_loss = self.dd_loss(traj)
+        mets = self.dd_opt(dd_tape, dd_loss, [self.dyndist])
+        mets.update(self.achiever.update(traj, tape))
         success = tf.reduce_sum(
-            (traj['reward_goal'] > -1).astype(tf.int16), axis=0
+            (self.goal_reward(traj) > -1).astype(tf.int16), axis=0
         )
         success = tf.math.count_nonzero(success) / len(success)
         mets['success'] = success
-        mets['mean_shift'] = tf.reduce_mean(shift + 1)
         return mets
     
     def train_vae_replay(self, data):
@@ -211,14 +250,12 @@ class DIAYN(tfutils.Module):
         traj = tf.squeeze(decoder(traj)['absolute_position'].mode())
         return reward, traj
     
-    def goal_reward(self, goal, state):
-        goal = tf.stop_gradient(goal.astype(tf.float32))
-        delta_2 = tf.math.squared_difference(goal, state.astype(tf.float32))
-        eps = tf.math.square(self.config.goal_epsilon * goal)
-        distance = tf.exp(
-            -tf.reduce_sum(tf.math.divide_no_nan(delta_2, eps), -1)
-        ) - 1
-        return distance[1:]
+    def goal_reward(self, traj):
+        goal = tf.stop_gradient(traj['goal'].astype(tf.float32))
+        reward = - self.dyndist(
+            {'deter': traj['deter'], 'final': goal, 'goal': goal}
+        ).mode()
+        return reward[1:]
 
     def report(self, data):
         states, _ = self.wm.rssm.observe(
@@ -254,6 +291,9 @@ class DIAYN(tfutils.Module):
         achiever = lambda s: self.achiever.actor({**s, 'goal': goal,}).sample()
         horizon = states['deter'].shape[1] - 5
         traj = self.wm.imagine(achiever, start, horizon)
+        traj['goal'] = tf.repeat(goal[None], 1 + horizon, 0)
+        grew = self.goal_reward(traj).mean()
+        outputs['grew'] = grew
         goal_rollout = decoder(traj)['absolute_position'].mode()
         rec = {k: v[:1] for k, v in states.items()}
         rec = decoder(rec)['absolute_position'].mode()[0]

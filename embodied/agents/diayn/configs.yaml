@@ -163,6 +163,9 @@ defaults:
   achiever_inputs: [deter, stoch, goal]
   goal_epsilon: 10.
   goal_shift_prob: 0.3
+  dyndist: {layers: 4, units: 512, act: elu, norm: layer, dist: symlog, outscale: 0.1, inputs: [deter, final, goal]}
+  dyndist_opt: {opt: adam, lr: 1e-4, eps: 1e-6, clip: 100.0, wd: 1e-2, wd_pattern: 'kernel'}
+  dd_batch_size: 512
 
 dmlab:
 
