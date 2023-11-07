@@ -54,10 +54,10 @@ def plot_trajs(initial, rollout):
 def plot_episode_traj(rollout, episode):
     fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
     ax.set_aspect('equal')
-    ax.plot(rollout[:, 0], rollout[:, 1], color='k')
+    ax.plot(rollout[1:, 0], rollout[1:, 1], color='k')
     ax.plot(episode[:, 0], episode[:, 1], color='g')
     ax.scatter(episode[0, 0], episode[0, 1], s=50, color='r', marker='*')
-    ax.scatter(rollout[0, 0], rollout[0, 1], s=50, color='r', marker='*')
+    ax.scatter(rollout[1, 0], rollout[1, 1], s=50, color='r', marker='*')
     fig.canvas.draw()
     img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
     img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
