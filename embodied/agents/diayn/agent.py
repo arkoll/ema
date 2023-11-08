@@ -160,6 +160,7 @@ class WorldModel(tfutils.Module):
         self.heads['decoder'] = nets.MultiDecoder(shapes, **config.decoder)
         self.heads['reward'] = nets.MLP((), **config.reward_head)
         self.heads['cont'] = nets.MLP((), **config.cont_head)
+        self.heads['embed'] = nets.MLP(**config.embed_head)
         self.model_opt = tfutils.Optimizer('model', **config.model_opt)
         self.wmkl = tfutils.AutoAdapt((), **self.config.wmkl, inverse=False)
 
@@ -175,6 +176,7 @@ class WorldModel(tfutils.Module):
     def loss(self, data, state=None, training=False):
         metrics = {}
         embed = self.encoder(data)
+        data['embed'] = tf.stop_gradient(embed)
         post, prior = self.rssm.observe(
             embed, data['action'], data['is_first'], state
         )
@@ -204,7 +206,7 @@ class WorldModel(tfutils.Module):
             weights /= weights.max()
             assert weights.shape == model_loss.shape
             model_loss *= weights
-        out = {'embed':    embed, 'post': post, 'prior': prior}
+        out = {'embed': embed, 'post': post, 'prior': prior}
         out.update({f'{k}_loss': v for k, v in losses.items()})
         metrics['prior_ent'] = self.rssm.get_dist(prior).entropy().mean()
         metrics['post_ent'] = self.rssm.get_dist(post).entropy().mean()
