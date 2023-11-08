@@ -133,45 +133,65 @@ class DIAYN(tfutils.Module):
         return None, metrics
     
     def goal_proposal(self, start):
-        goal = start['deter']
-        shift = tfd.Geometric(
-            probs=tf.fill([goal.shape[0]], self.config.goal_shift_prob)
-        ).sample().astype(tf.int32)
-        indices = tf.range(goal.shape[0], dtype=tf.int32)
-        goal_indices = tf.math.floormod(indices + shift + 1, goal.shape[0])
-        goal = tf.gather(goal, goal_indices)
+        goal = start['embed']
+        ids = tf.random.shuffle(tf.range(tf.shape(goal)[0]))
+        goal = tf.gather(goal, ids)
         return goal
     
     def get_future_idxs(self):
         cur_idx_list = []
         fut_idx_list = []
-        for cur_idx in tf.range(self.config.imag_horizon):
-            for fut_idx in tf.range(cur_idx, self.config.imag_horizon):
+        for cur_idx in tf.range(self.config.imag_horizon + 1):
+            for fut_idx in tf.range(cur_idx, self.config.imag_horizon + 1):
                 cur_idx_list.append(cur_idx)
                 fut_idx_list.append(fut_idx)
         return tf.concat(cur_idx_list, 0), tf.concat(fut_idx_list, 0)
     
-    def dd_loss(self, traj):
+    def dd_loss(self, inp):
+        seq_len = inp.shape[0]
         sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)
+        n_negatives = int(self.config.dd_batch_size * self.config.dd_negatives)
+        n_positives = self.config.dd_batch_size - n_negatives
+
+        # positives
         indices = tfd.Categorical(
             logits=tf.zeros(len(self.dd_cur_idxs))
-        ).sample(self.config.dd_batch_size)
+        ).sample(n_positives)
         b_ind = tfd.Categorical(
             logits=tf.zeros(self.config.replay_chunk * self.config.batch_size)
-        ).sample(self.config.dd_batch_size)
+        ).sample(n_positives)
         c_ind = tf.stack([tf.gather(self.dd_cur_idxs, indices), b_ind], axis=1)
-        f_ind = tf.stack([tf.gather(self.dd_fut_idxs, indices), b_ind], axis=1)
-        
-        state1 = tf.gather_nd(traj['deter'], c_ind)
-        state2 = tf.gather_nd(traj['deter'], f_ind)
-        goal = tf.gather(traj['goal'][0], b_ind)
-        preds = self.dyndist(sg({
-            'deter': state1, 'final': state2, 'goal': goal
-        })).mode()
-        distance = tf.stop_gradient(
-            f_ind[:, 0] - c_ind[:, 0]
-        ).astype(tf.float32)
-        loss = tf.math.squared_difference(preds, distance).mean()
+        f_ind = tf.stack([tf.gather(self.dd_fut_idxs, indices), b_ind], axis=1) 
+        state1 = tf.gather_nd(inp, c_ind)
+        state2 = tf.gather_nd(inp, f_ind)
+        distance = (f_ind[:, 0] - c_ind[:, 0]).astype(tf.float32) / seq_len
+
+        # negatives
+        seq_ind = tfd.Categorical(logits=tf.zeros(seq_len)).sample(
+            (2, n_negatives)
+        )
+        b_ind = tfd.Categorical(
+            logits=tf.zeros(self.config.replay_chunk * self.config.batch_size)
+        ).sample(n_negatives)
+        neg_ch_ind = tfd.Categorical(
+            logits=tf.zeros(self.config.batch_size - 1)
+        ).sample(n_negatives)
+        neg_goal_ind = tfd.Categorical(
+            logits=tf.zeros(self.config.replay_chunk)
+        ).sample(n_negatives)
+        neg_b_ind = tf.math.floormod(
+            tf.math.floordiv(b_ind, self.config.replay_chunk) + neg_ch_ind + 1,
+            self.config.batch_size
+        ) * self.config.replay_chunk + neg_goal_ind
+        c_ind = tf.stack([seq_ind[0], b_ind], axis=1)
+        f_ind = tf.stack([seq_ind[1], neg_b_ind], axis=1)
+        state1 = tf.concat([state1, tf.gather_nd(inp, c_ind)], axis=0)
+        state2 = tf.concat([state2, tf.gather_nd(inp, f_ind)], axis=0)
+        distance = tf.stop_gradient(tf.concat(
+            [distance, tf.ones(n_negatives, dtype=tf.float32)], axis=0
+        ))
+        dist = self.dyndist(sg({'embed': state1, 'goal': state2}))
+        loss = - dist.log_prob(distance).mean()
         return loss
     
     def train_achiever(self, imagine, start):
@@ -186,15 +206,10 @@ class DIAYN(tfutils.Module):
             traj['goal'] = tf.repeat(
                 goal[None], 1 + self.config.imag_horizon, 0
             )
-        with tf.GradientTape() as dd_tape:
-            dd_loss = self.dd_loss(traj)
-        mets = self.dd_opt(dd_tape, dd_loss, [self.dyndist])
-        mets.update(self.achiever.update(traj, tape))
-        success = tf.reduce_sum(
-            (self.goal_reward(traj) > -1).astype(tf.int16), axis=0
-        )
-        success = tf.math.count_nonzero(success) / len(success)
-        mets['success'] = success
+        mets = self.achiever.update(traj, tape)
+        with tf.GradientTape() as tape:
+            dd_loss = self.dd_loss(self.wm.heads['embed'](traj).mode())
+        mets.update(self.dd_opt(tape, dd_loss, [self.dyndist]))
         return mets
     
     def train_vae_replay(self, data):
@@ -251,10 +266,9 @@ class DIAYN(tfutils.Module):
         return reward, traj
     
     def goal_reward(self, traj):
+        embed = self.wm.heads['embed'](traj).mode()
         goal = tf.stop_gradient(traj['goal'].astype(tf.float32))
-        reward = - self.dyndist(
-            {'deter': traj['deter'], 'final': goal, 'goal': goal}
-        ).mode()
+        reward = - self.dyndist({'embed': embed, 'goal': goal}).mode()
         return reward[1:]
 
     def report(self, data):
@@ -281,25 +295,27 @@ class DIAYN(tfutils.Module):
         rollout = tf.reshape(rollout, (length, n_skills, n_samp, -1))
         outputs = {'skill_trajs': (initial, rollout)}
 
-        # Imagine goal trajs from random state
-        start = {k: v[:1, 4] for k, v in states.items()}
-        start['is_terminal'] = data['is_terminal'][:1, 4]
-        start = {
-            k: tf.repeat(v, n_samp, 0) for k, v in start.items()
-        }
-        goal = tf.repeat(states['deter'][:1, -1], n_samp, 0)
+        # Imagine goal trajs from random start
+        n_goals = self.config.report_goals
+        start = self.wm.rssm.initial(n_goals * n_samp)
+        start['is_terminal'] = tf.zeros(n_goals * n_samp)
+        goal = self.wm.encoder(data)
+        goal = tf.reshape(goal, [-1, goal.shape[-1]])
+        ids = tf.random.shuffle(tf.range(tf.shape(goal)[0]))[:n_goals]
+        goal = tf.gather(goal, ids)
+        goal = tf.repeat(goal, n_samp, 0)
         achiever = lambda s: self.achiever.actor({**s, 'goal': goal,}).sample()
-        horizon = states['deter'].shape[1] - 5
+        horizon = self.config.goal_horizon
         traj = self.wm.imagine(achiever, start, horizon)
         traj['goal'] = tf.repeat(goal[None], 1 + horizon, 0)
+        traj['embed'] = self.wm.heads['embed'](traj).mode()
         grew = self.goal_reward(traj).mean()
         outputs['grew'] = grew
-        goal_rollout = decoder(traj)['absolute_position'].mode()
-        rec = {k: v[:1] for k, v in states.items()}
-        rec = decoder(rec)['absolute_position'].mode()[0]
-        outputs['goal_trajs'] = (
-            data['absolute_position'][0], rec, goal_rollout
-        )
+        goal_true_coord = tf.reshape(data['absolute_position'], [-1, 3])
+        goal_true_coord = tf.gather(goal_true_coord, ids)
+        goal_traj = decoder(traj)['absolute_position'].mode()
+        goal_traj = tf.reshape(goal_traj, [horizon + 1, n_goals, n_samp, -1])
+        outputs['goal_trajs'] = (goal_true_coord, goal_traj)
 
         # Imagine skill trajs from start
         start = self.wm.rssm.initial(n_skills * n_samp)

@@ -67,19 +67,23 @@ def plot_episode_traj(rollout, episode):
     return img
 
 
-def plot_gtrajs(true_traj, rec, goal_rollout):
+def plot_gtrajs(goal_true_coord, goal_traj):
     fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
     ax.set_aspect('equal')
-    ax.plot(true_traj[:, 0], true_traj[:, 1], color='g')
-    ax.plot(rec[:, 0], rec[:, 1], color='r', alpha=0.5)
-    for s in range(goal_rollout.shape[1]):
-        ax.plot(
-            goal_rollout[:, s, 0], goal_rollout[:, s, 1], color='k', alpha=0.1
-        )
-    ax.scatter(rec[4, 0], rec[4, 1], color='k')
-    ax.scatter(true_traj[4, 0], true_traj[4, 1], color='k')
-    ax.scatter(rec[-1, 0], rec[-1, 1], color='b', marker='*')
-    ax.scatter(true_traj[-1, 0], true_traj[-1, 1], color='b', marker='*')
+    cmap = mpl.colormaps['tab20']
+    for g in range(goal_traj.shape[1]):
+        for s in range(goal_traj.shape[2]):
+            ax.plot(
+                goal_traj[:, g, s, 0], goal_traj[:, g, s, 1], color=cmap(g),
+                alpha=0.3, zorder=1
+            )
+    ax.scatter(
+        goal_true_coord[:, 0], goal_true_coord[:, 1],
+        color=cmap(range(goal_traj.shape[1])), s=20, zorder=2
+    )
+    ax.scatter(
+        goal_traj[0, :, 0, 0], goal_traj[0, :, 0, 1], color='k', s=20, zorder=2
+    )
     fig.canvas.draw()
     img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
     img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
