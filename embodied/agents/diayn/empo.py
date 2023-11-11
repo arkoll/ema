@@ -74,32 +74,39 @@ class DIAYN(tfutils.Module):
     def initial(self, batch_size):
         return {
             'step': tf.zeros((batch_size,), tf.int64),
-            'skill': tf.zeros(
-                (batch_size,) + self.config.skill_shape, tf.float32
+            'goal': tf.zeros(
+                (batch_size,) + self.config.goal_shape, tf.float32
             ),
+            'goal_pos': tf.zeros((batch_size, 3), tf.float32)
         }
     
-    def policy(self, latent, carry, imag=False):
-        # duration = self.config.train_skill_duration if imag else (
-        #     self.config.env_skill_duration
-        # )
+    def policy(self, latent, carry):
+        duration = self.config.goal_duration
         sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)
-        # update = (carry['step'] % duration) == 0
-        # switch = lambda x, y: (
-        #     tf.einsum('i,i...->i...', 1 - update.astype(x.dtype), x) +
-        #     tf.einsum('i,i...->i...', update.astype(x.dtype), y)
-        # )
-        # skill = sg(switch(
-        #     carry['skill'],
-        #     tf.squeeze(self.prior.sample((carry['skill'].shape[0],)))
-        # ))
-        # dist = self.worker.actor(sg({**latent, 'skill': skill}))
-        dist = self.explorer.actor(sg({**latent}))
+        update = (carry['step'] % duration) == 0
+        switch = lambda x, y: (
+            tf.einsum('i,i...->i...', 1 - update.astype(x.dtype), x) +
+            tf.einsum('i,i...->i...', update.astype(x.dtype), y)
+        )
+        if tf.math.reduce_any(update):
+            self.update_goal_buffer()
+
+        goals = self.goal_buffer_embed
+        bs = carry['goal'].shape[0]
+        goal = tfd.Categorical(logits=tf.zeros(goals.shape[0])).sample(bs)
+        goal_pos = tf.gather(self.goal_buffer_pos, goal)
+        goal = tf.gather(goals, goal)
+        goal = sg(switch(carry['goal'], goal))
+        goal_pos = sg(switch(carry['goal_pos'], goal_pos))
+        dist = self.achiever.actor(sg({**latent, 'goal': goal}))
+        # dist = self.explorer.actor(sg({**latent}))
         outs = {'action': dist}
         outs['log_position'] = self.wm.heads['decoder'](latent)[
             'absolute_position'
         ].mode()
-        carry = {'step': carry['step'] + 1, 'skill': carry['skill']}
+        outs['log_cgoal'] = goal_pos 
+        outs['log_update'] = update
+        carry = {'step': carry['step'] + 1, 'goal': goal, 'goal_pos': goal_pos}
         return outs, carry
 
     def train(self, imagine, start, data):
@@ -132,6 +139,28 @@ class DIAYN(tfutils.Module):
         metrics.update({f'worker_{k}': v for k, v in mets.items()})
         return None, metrics
     
+    def update_goal_buffer(self):
+        n_skills = self.config.skill_shape[0]
+        n_samp = self.config.skill_samples
+        skill = tf.repeat(tf.eye(n_skills), n_samp, 0)
+        worker = lambda s: self.worker.actor({**s, 'skill': skill,}).sample()
+        traj = self.wm.rssm.initial(n_skills * n_samp)
+        traj['is_terminal'] = tf.zeros(n_skills * n_samp)
+        traj = self.wm.imagine(worker, traj, self.config.horizon_to_find_goals)
+        traj = {k: v[-1] for k, v in traj.items()}
+        embed = self.wm.heads['embed'](traj).mode()
+        position = self.wm.heads['decoder'](traj)['absolute_position'].mode()
+        if not hasattr(self, "goal_buffer_pos"):
+            self.goal_buffer_pos = tf.Variable(
+                tf.zeros_like(position), trainable=False, name="goal_buffer_pos"
+            )
+        if not hasattr(self, "goal_buffer_embed"):
+            self.goal_buffer_embed = tf.Variable(
+                tf.zeros_like(embed), trainable=False, name="goal_buffer_embed"
+            )
+        self.goal_buffer_embed.assign(embed)
+        self.goal_buffer_pos.assign(position)
+
     def goal_proposal(self, start):
         goal = start['embed']
         ids = tf.random.shuffle(tf.range(tf.shape(goal)[0]))
@@ -339,4 +368,15 @@ class DIAYN(tfutils.Module):
             {'deter': goals, 'stoch': self.wm.rssm.get_stoch(goals)}
         )['absolute_position'].mode()
         outputs['landmarks'] = (goals, reward, max_traj)
+
+        goals = self.goal_buffer_embed
+        states, _ = self.wm.rssm.observe(
+            tf.expand_dims(goals, 1).astype(tf.float16), 
+            tf.zeros((goals.shape[0], 1, data['action'].shape[-1])),
+            tf.ones((goals.shape[0], 1))
+        )
+        goals = tf.squeeze(decoder(states)['absolute_position'].mode())
+        goals = tf.reshape(goals,  (n_skills, n_samp, -1))
+        saved_goals = tf.reshape(self.goal_buffer_pos,  (n_skills, n_samp, -1))
+        outputs['buffer_goals'] = (goals, saved_goals)
         return outputs

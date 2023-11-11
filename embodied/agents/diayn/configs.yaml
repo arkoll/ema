@@ -170,6 +170,9 @@ defaults:
   dd_negatives: 0.1
   report_goals: 10
   goal_horizon: 50
+  goal_shape: [2560] # should be the embed size
+  goal_duration: 100
+  horizon_to_find_goals: 10
 
 dmlab:
 
@@ -257,3 +260,4 @@ debug:
   .*\.wd: 0.0
   tf: {platform: gpu, jit: False}
   embed_head.shape: 1024
+  goal_shape: [1024]

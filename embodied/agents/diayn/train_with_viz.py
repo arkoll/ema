@@ -51,13 +51,33 @@ def plot_trajs(initial, rollout):
     return img
 
 
-def plot_episode_traj(rollout, episode):
+def plot_episode_traj(rollout, episode, goals, update):
+    changes = np.argwhere(update)
     fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
     ax.set_aspect('equal')
-    ax.plot(rollout[1:, 0], rollout[1:, 1], color='k')
-    ax.plot(episode[:, 0], episode[:, 1], color='g')
-    ax.scatter(episode[0, 0], episode[0, 1], s=50, color='r', marker='*')
-    ax.scatter(rollout[1, 0], rollout[1, 1], s=50, color='r', marker='*')
+    ax.plot(rollout[1:, 0], rollout[1:, 1], color='k', zorder=1)
+    ax.plot(episode[:, 0], episode[:, 1], color='g', zorder=1)
+    ax.scatter(
+        episode[0, 0], episode[0, 1], s=50, color='r', marker='*', zorder=2
+    )
+    ax.scatter(
+        rollout[1, 0], rollout[1, 1], s=50, color='r', marker='*', zorder=2
+    )
+    ax.scatter(goals[1, 0], goals[1, 1], s=50, color='b', marker='$0$', zorder=2)
+    for i, change in enumerate(changes):
+        ch = change[0]
+        goal = goals[ch]
+        ax.scatter(
+            goal[0], goal[1], s=50, color='b', marker=f'${i+1}$', zorder=2
+        )
+        ep_step = episode[ch-1]
+        ax.scatter(
+            ep_step[0], ep_step[1], s=50, color='r', marker=f'${i+1}$', zorder=2
+        )
+        ro_step = rollout[ch]
+        ax.scatter(
+            ro_step[0], ro_step[1], s=50, color='r', marker=f'${i+1}$', zorder=2
+        )
     fig.canvas.draw()
     img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
     img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
@@ -113,6 +133,23 @@ def plot_landmarks(goals, reward, max_traj):
     return img
 
 
+def plot_bgoals(cur_goals, saved_goals):
+    fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
+    ax.set_aspect('equal')
+    cmap = mpl.colormaps['tab20']
+    for i, sk in enumerate(cur_goals):
+        ax.scatter(sk[:, 0], sk[:, 1], color=cmap(i))
+    for i, sk in enumerate(saved_goals):
+        ax.scatter(sk[:, 0], sk[:, 1], color=cmap(i), marker='+')
+    fig.canvas.draw()
+    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
+    img = np.transpose(img, [1, 2, 0])
+    img = img.astype(float) / 255.  
+    plt.close(fig)
+    return img
+
+
 def postprocess_report(data):
     for key, value in data.items():
         if 'skill_goals' in key:
@@ -123,6 +160,8 @@ def postprocess_report(data):
             data[key] = plot_gtrajs(*value)
         if 'landmarks' in key:
             data[key] = plot_landmarks(*value)
+        if 'buffer_goals' in key:
+            data[key] = plot_bgoals(*value)
     return data
 
 
@@ -169,14 +208,15 @@ def train_with_viz(agent, env, train_replay, eval_replay, logger, args):
             if re.match(args.log_keys_max, key):
                 logs[f'max_{key}'] = ep[key].max(0).mean()
         if should_video(step):
+            if 'log_position' in ep:
+                metrics[f'policy_position'] = plot_episode_traj(
+                    ep['log_position'], ep['absolute_position'],
+                    ep['log_cgoal'], ep['log_update']
+                )
             for key in args.log_keys_video:
                 if key == 'none':
                     continue
                 metrics[f'policy_{key}'] = ep[key]
-                if 'log_position' in ep:
-                    metrics[f'policy_{key}_position'] = plot_episode_traj(
-                        ep['log_position'], ep['absolute_position']
-                    )
                 if 'log_goal' in ep:
                     if ep['image'].shape == ep['log_goal'].shape:
                         goal = (255 * ep['log_goal']).astype(np.uint8)
