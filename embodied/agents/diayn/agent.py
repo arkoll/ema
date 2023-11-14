@@ -57,14 +57,17 @@ class Agent(tfagent.TFAgent):
         noise = self.config.expl_noise
         if mode == 'eval':
             noise = self.config.eval_noise
-            outs, task_state = self.task_behavior.policy(latent, task_state)
-            outs = {**outs, 'action': outs['action'].mode()}
+            outs, task_state = self.task_behavior.policy(
+                latent, task_state, mode
+            )
         elif mode == 'explore':
-            outs, expl_state = self.expl_behavior.policy(latent, expl_state)
-            outs = {**outs, 'action': outs['action'].sample()}
+            outs, expl_state = self.expl_behavior.policy(
+                latent, expl_state, mode
+            )
         elif mode == 'train':
-            outs, task_state = self.task_behavior.policy(latent, task_state)
-            outs = {**outs, 'action': outs['action'].sample()}
+            outs, task_state = self.task_behavior.policy(
+                latent, task_state, mode
+            )
         outs = {**outs, 'action': tfutils.action_noise(
                 outs['action'], noise, self.act_space)}
         state = (latent, task_state, expl_state, outs['action'])

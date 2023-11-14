@@ -80,13 +80,14 @@ class DIAYN(tfutils.Module):
             'goal_pos': tf.zeros((batch_size, 3), tf.float32)
         }
     
-    def policy(self, latent, carry):
+    def policy(self, latent, carry, mode):
         duration = self.config.goal_duration
         sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)
         update = (carry['step'] % duration) == 0
-        switch = lambda x, y: (
-            tf.einsum('i,i...->i...', 1 - update.astype(x.dtype), x) +
-            tf.einsum('i,i...->i...', update.astype(x.dtype), y)
+        update_exp = ((carry['step'] // duration) % 2) == 0
+        switch = lambda x, y, upd: (
+            tf.einsum('i,i...->i...', 1 - upd.astype(x.dtype), x) +
+            tf.einsum('i,i...->i...', upd.astype(x.dtype), y)
         )
         if tf.math.reduce_any(update):
             self.update_goal_buffer()
@@ -96,16 +97,21 @@ class DIAYN(tfutils.Module):
         goal = tfd.Categorical(logits=tf.zeros(goals.shape[0])).sample(bs)
         goal_pos = tf.gather(self.goal_buffer_pos, goal)
         goal = tf.gather(goals, goal)
-        goal = sg(switch(carry['goal'], goal))
-        goal_pos = sg(switch(carry['goal_pos'], goal_pos))
-        dist = self.achiever.actor(sg({**latent, 'goal': goal}))
-        # dist = self.explorer.actor(sg({**latent}))
-        outs = {'action': dist}
+        goal = sg(switch(carry['goal'], goal, update))
+        goal_pos = sg(switch(carry['goal_pos'], goal_pos, update))
+        if mode == 'train' or mode == 'explore':
+            a_act = self.achiever.actor(sg({**latent, 'goal': goal})).sample()
+            e_act = self.explorer.actor(sg({**latent})).sample()
+            act = switch(e_act, a_act, update_exp)
+        elif mode == 'eval':
+            act = self.achiever.actor(sg({**latent, 'goal': goal})).mode()
+        outs = {'action': act}
         outs['log_position'] = self.wm.heads['decoder'](latent)[
             'absolute_position'
         ].mode()
         outs['log_cgoal'] = goal_pos 
         outs['log_update'] = update
+        outs['log_update_exp'] = update_exp
         carry = {'step': carry['step'] + 1, 'goal': goal, 'goal_pos': goal_pos}
         return outs, carry
 

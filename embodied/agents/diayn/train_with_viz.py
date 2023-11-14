@@ -51,32 +51,48 @@ def plot_trajs(initial, rollout):
     return img
 
 
-def plot_episode_traj(rollout, episode, goals, update):
+def plot_episode_traj(rollout, episode, goals, update, update_exp):
     changes = np.argwhere(update)
     fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
     ax.set_aspect('equal')
     ax.plot(rollout[1:, 0], rollout[1:, 1], color='k', zorder=1)
     ax.plot(episode[:, 0], episode[:, 1], color='g', zorder=1)
+    if update_exp[1]:
+        g_col = 'b'
+        st_col = 'r'
+    else:
+        g_col = 'lightsteelblue'
+        st_col = 'salmon'
     ax.scatter(
-        episode[0, 0], episode[0, 1], s=50, color='r', marker='*', zorder=2
+        episode[0, 0], episode[0, 1], s=50, color=st_col, marker='*', zorder=2
     )
     ax.scatter(
-        rollout[1, 0], rollout[1, 1], s=50, color='r', marker='*', zorder=2
+        rollout[1, 0], rollout[1, 1], s=50, color=st_col, marker='*', zorder=2
     )
-    ax.scatter(goals[1, 0], goals[1, 1], s=50, color='b', marker='$0$', zorder=2)
+    ax.scatter(
+        goals[1, 0], goals[1, 1], s=50, color=g_col, marker='$0$', zorder=2
+    )
     for i, change in enumerate(changes):
         ch = change[0]
         goal = goals[ch]
+        if update_exp[ch]:
+            g_col = 'b'
+            st_col = 'r'
+        else:
+            g_col = 'lightsteelblue'
+            st_col = 'salmon'
         ax.scatter(
-            goal[0], goal[1], s=50, color='b', marker=f'${i+1}$', zorder=2
+            goal[0], goal[1], s=50, color=g_col, marker=f'${i+1}$', zorder=2
         )
         ep_step = episode[ch-1]
         ax.scatter(
-            ep_step[0], ep_step[1], s=50, color='r', marker=f'${i+1}$', zorder=2
+            ep_step[0], ep_step[1], s=50, color=st_col, marker=f'${i+1}$',
+            zorder=2
         )
         ro_step = rollout[ch]
         ax.scatter(
-            ro_step[0], ro_step[1], s=50, color='r', marker=f'${i+1}$', zorder=2
+            ro_step[0], ro_step[1], s=50, color=st_col, marker=f'${i+1}$',
+            zorder=2
         )
     fig.canvas.draw()
     img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
@@ -211,7 +227,7 @@ def train_with_viz(agent, env, train_replay, eval_replay, logger, args):
             if 'log_position' in ep:
                 metrics[f'policy_position'] = plot_episode_traj(
                     ep['log_position'], ep['absolute_position'],
-                    ep['log_cgoal'], ep['log_update']
+                    ep['log_cgoal'], ep['log_update'], ep['log_update_exp']
                 )
             for key in args.log_keys_video:
                 if key == 'none':
