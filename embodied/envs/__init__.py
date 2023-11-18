@@ -65,8 +65,9 @@ def load_single_env(
     elif suite == 'loconav':
         from . import loconav
         env = loconav.LocoNav(
-                task, repeat, size, camera,
-                again=again, termination=termination, weaker=weaker)
+            task, repeat, size, camera, mode, again=again,
+            termination=termination, weaker=weaker
+        )
     elif suite == 'pinpad':
         from . import pinpad
         assert repeat == 1

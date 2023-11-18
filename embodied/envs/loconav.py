@@ -17,8 +17,8 @@ class LocoNav(embodied.Env):
     )
 
     def __init__(
-            self, name, repeat=1, size=(64, 64), camera=-1, again=False,
-            termination=False, weaker=1.0
+            self, name, repeat=1, size=(64, 64), camera=-1, mode='train',
+            again=False, termination=False, weaker=1.0
         ):
         if name.endswith('hz'):
             name, freq = name.rsplit('_', 1)
@@ -36,6 +36,9 @@ class LocoNav(embodied.Env):
         if camera == -1:
             camera = self.DEFAULT_CAMERAS.get(walker, 0)
         self._walker = self._make_walker(walker)
+        self.mode = mode
+        if mode == 'eval':
+            arena_test = self._make_arena(arena + '_test')
         arena = self._make_arena(arena)
         target = target_sphere.TargetSphere(radius=1.2, height_above_ground=0.0)
         task = random_goal_maze.RepeatSingleGoalMaze(
@@ -62,27 +65,62 @@ class LocoNav(embodied.Env):
             strip_singleton_obs_buffer_dim=True
         )
         self._env = dmc.DMC(env, repeat, size, camera)
+
+        if mode == 'eval':
+            # Test env
+            test_walker = self._make_walker(walker)
+            target_test = target_sphere.TargetSphere(
+                radius=1.2, height_above_ground=0.0
+            )
+            task_test = random_goal_maze.RepeatSingleGoalMaze(
+                walker=test_walker, maze_arena=arena_test, target=target_test,
+                max_repeats=1000 if again else 1,
+                randomize_spawn_rotation=True,
+                target_reward_scale=1.0,
+                aliveness_threshold=-0.5 if termination else -1.0,
+                contact_termination=False,
+                physics_timestep=min(1 / freq / 4, 0.02),
+                control_timestep=1 / freq,
+                enable_global_task_observables=True
+            )
+            env_test = composer.Environment(
+                time_limit=60, task=task_test, random_state=None,
+                strip_singleton_obs_buffer_dim=True
+            )
+            self._env_test = dmc.DMC(env_test, repeat, size, camera)
+            self._goal_obs = self._env_test.step({'reset': True})
         self._visited = None
         self._weaker = weaker
 
     @property
     def obs_space(self):
-        return {
+        obs_space = {
             **self._env.obs_space, 
             'log_coverage': embodied.Space(np.int64, low=0),
         }
+        if self.mode == 'eval':
+            obs_space = {
+                **obs_space,
+                **{
+                    'GOAL_' + k: v for k, v in self._env.obs_space.items()
+                    if k != 'reward'
+                }
+            }
+        return obs_space
 
     @property
     def act_space(self):
         return self._env.act_space
 
-    def step(self, action):
+    def step(self, action): 
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', '.*is a deprecated alias for.*')
             action = action.copy()
             action['action'] *= self._weaker
             obs = self._env.step(action)
         if obs['is_first']:
+            if self.mode == 'eval':
+                self._goal_obs = self._env_test.step({'reset': True})
             self._visited = set()
         # TODO: find why this doesn't work for ball walker
         # global_pos = self._walker.get_pose(
@@ -93,6 +131,12 @@ class LocoNav(embodied.Env):
         ).xpos.copy()
         self._visited.add(tuple(np.round(global_pos[:2]).astype(int).tolist()))
         obs['log_coverage'] = len(self._visited)
+        if self.mode == 'eval':
+            gobs = {
+                'GOAL_' + k: v for k, v in self._goal_obs.items()
+                if k != 'reward'
+            }
+            obs = {**obs, **gobs}
         return obs
 
     def _make_walker(self, name):
@@ -151,6 +195,20 @@ MAPS = {
                 '1 1 1 1 5 5 5 . . . 4',
                 '1 . . . . . . . . . 3',
                 '1 . P . . . . . . . 3',
+                '1 . . . . . . . . . 3',
+                '1 1 1 1 2 2 2 3 3 3 3',
+        ),
+
+        'maze_s_test': (
+                '            6 6 6 6 6',
+                '            6 . . . 6',
+                '            6 . P . 6',
+                '            6 . . . 6',
+                '            5 . . . 4',
+                '            5 . . . 4',
+                '1 1 1 1 5 5 5 . . . 4',
+                '1 . . . . . . . . . 3',
+                '1 . G . . . . . . . 3',
                 '1 . . . . . . . . . 3',
                 '1 1 1 1 2 2 2 3 3 3 3',
         ),

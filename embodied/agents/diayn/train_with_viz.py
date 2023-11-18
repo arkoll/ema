@@ -181,7 +181,9 @@ def postprocess_report(data):
     return data
 
 
-def train_with_viz(agent, env, train_replay, eval_replay, logger, args):
+def train_with_viz(
+        agent, env, eval_env, train_replay, eval_replay, logger, args
+    ):
 
     logdir = embodied.Path(args.logdir)
     logdir.mkdirs()
@@ -199,11 +201,13 @@ def train_with_viz(agent, env, train_replay, eval_replay, logger, args):
         timer.wrap('replay', train_replay, ['_sample'])
 
     nonzeros = set()
-    def per_episode(ep):
+    def per_episode(ep, mode):
         metrics = {}
         length = len(ep['reward']) - 1
         score = float(ep['reward'].astype(np.float64).sum())
-        print(f'Episode has {length} steps and return {score:.1f}.')
+        print(
+            f'{mode.title()} episode has {length} steps and return {score:.1f}.'
+        )
         metrics['length'] = length
         metrics['score'] = score
         metrics['reward_rate'] = (
@@ -223,7 +227,11 @@ def train_with_viz(agent, env, train_replay, eval_replay, logger, args):
                 logs[f'mean_{key}'] = ep[key].mean()
             if re.match(args.log_keys_max, key):
                 logs[f'max_{key}'] = ep[key].max(0).mean()
-        if should_video(step):
+        if mode == 'train':
+            should = should_video(step)
+        else:
+            should = True
+        if should:
             if 'log_position' in ep:
                 metrics[f'policy_position'] = plot_episode_traj(
                     ep['log_position'], ep['absolute_position'],
@@ -239,28 +247,39 @@ def train_with_viz(agent, env, train_replay, eval_replay, logger, args):
                         metrics[f'policy_{key}_with_goal'] = np.concatenate(
                             [ep['image'], goal], 2
                         )
-        logger.add(metrics, prefix='episode')
-        logger.add(logs, prefix='logs')
-        logger.add(train_replay.stats, prefix='replay')
+        replay = dict(train=train_replay, eval=eval_replay)[mode]
+        logger.add(metrics, prefix=f'{mode}_episode')
+        logger.add(logs, prefix=f'{mode}_logs')
+        logger.add(replay.stats, prefix=f'{mode}_replay')
         logger.write()
+
+    random_agent = embodied.RandomAgent(env.act_space)
+    eval_driver = embodied.Driver(eval_env)
+    eval_driver.on_step(eval_replay.add)
+    eval_driver.on_episode(lambda ep, worker: per_episode(ep, mode='eval'))
+    
+    eval_metrics = collections.defaultdict(list)
+    def eval_episode(ep):
+        g = ep['GOAL_absolute_position']
+        s = ep['absolute_position']
+        d = np.linalg.norm(g - s, axis=1)
+        eval_metrics['distance'].append(d.min())
+        d = d / d[0]
+        eval_metrics['normed_distance'].append(d.min())
+    eval_driver.on_episode(lambda ep, worker: eval_episode(ep))
 
     fill = max(0, args.eval_fill - len(eval_replay))
     if fill:
         print(f'Fill eval dataset ({fill} steps).')
-        eval_driver = embodied.Driver(env)
-        eval_driver.on_step(eval_replay.add)
-        random_agent = embodied.RandomAgent(env.act_space)
         eval_driver(random_agent.policy, steps=fill, episodes=1)
-        del eval_driver
 
     driver = embodied.Driver(env)
-    driver.on_episode(lambda ep, worker: per_episode(ep))
+    driver.on_episode(lambda ep, worker: per_episode(ep, mode='train'))
     driver.on_step(lambda tran, _: step.increment())
     driver.on_step(train_replay.add)
     fill = max(0, args.train_fill - len(train_replay))
     if fill:
         print(f'Fill train dataset ({fill} steps).')
-        random_agent = embodied.RandomAgent(env.act_space)
         driver(random_agent.policy, steps=fill, episodes=1)
 
     dataset_train = iter(agent.dataset(train_replay.dataset))
@@ -291,10 +310,6 @@ def train_with_viz(agent, env, train_replay, eval_replay, logger, args):
             logger.add(
                 postprocess_report(agent.report(batch[0])), prefix='report'
             )
-            logger.add(
-                postprocess_report(agent.report(next(dataset_eval))),
-                prefix='eval'
-            )
             logger.add(timer.stats(), prefix='timer')
             logger.write(fps=True)
     driver.on_step(train_step)
@@ -308,9 +323,16 @@ def train_with_viz(agent, env, train_replay, eval_replay, logger, args):
 
     print('Start training loop.')
     policy = lambda *args: agent.policy(
-            *args, mode='explore' if should_expl(step) else 'train')
+        *args, mode='explore' if should_expl(step) else 'train'
+    )
+    eval_policy = lambda *args: agent.policy(*args, mode='eval')
     while step < args.steps:
         logger.write()
+        eval_driver.reset()
+        eval_metrics.clear()
+        eval_driver(eval_policy, episodes=max(len(eval_env), args.eval_eps))
+        mets = {k: np.mean(v) for k, v in eval_metrics.items()}
+        logger.add(mets, prefix='eval')
         driver(policy, steps=args.eval_every)
         checkpoint.save()
 

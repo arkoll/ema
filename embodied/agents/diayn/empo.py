@@ -92,18 +92,20 @@ class DIAYN(tfutils.Module):
         if tf.math.reduce_any(update):
             self.update_goal_buffer()
 
-        goals = self.goal_buffer_embed
-        bs = carry['goal'].shape[0]
-        goal = tfd.Categorical(logits=tf.zeros(goals.shape[0])).sample(bs)
-        goal_pos = tf.gather(self.goal_buffer_pos, goal)
-        goal = tf.gather(goals, goal)
-        goal = sg(switch(carry['goal'], goal, update))
-        goal_pos = sg(switch(carry['goal_pos'], goal_pos, update))
         if mode == 'train' or mode == 'explore':
+            goals = self.goal_buffer_embed
+            bs = carry['goal'].shape[0]
+            goal = tfd.Categorical(logits=tf.zeros(goals.shape[0])).sample(bs)
+            goal_pos = tf.gather(self.goal_buffer_pos, goal)
+            goal = tf.gather(goals, goal)
+            goal = sg(switch(carry['goal'], goal, update))
+            goal_pos = sg(switch(carry['goal_pos'], goal_pos, update))
             a_act = self.achiever.actor(sg({**latent, 'goal': goal})).sample()
             e_act = self.explorer.actor(sg({**latent})).sample()
             act = switch(e_act, a_act, update_exp)
         elif mode == 'eval':
+            goal = carry['goal']
+            goal_pos = carry['goal_pos']
             act = self.achiever.actor(sg({**latent, 'goal': goal})).mode()
         outs = {'action': act}
         outs['log_position'] = self.wm.heads['decoder'](latent)[

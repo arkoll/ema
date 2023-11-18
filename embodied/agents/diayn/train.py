@@ -115,20 +115,15 @@ def main(argv=None):
             )
             cleanup.append(eval_env)
         elif config.run == 'train_with_viz':
-            if config.eval_dir:
-                assert not config.train.eval_fill
-                eval_replay = make_replay(
-                    config.eval_dir, config.replay_size // 10
-                )
-            else:
-                assert config.train.eval_fill
-                eval_replay = make_replay(
-                    'eval_episodes', config.replay_size // 10
-                )
+            eval_env = embodied.envs.load_env(
+                config.task, mode='eval', logdir=logdir, **config.env
+            )
+            eval_replay = make_replay('eval_episodes', config.replay_size // 10)
             replay = make_replay('episodes', config.replay_size)
             train_with_viz.train_with_viz(
-                agent, env, replay, eval_replay, logger, args
+                agent, env, eval_env, replay, eval_replay, logger, args
             )
+            cleanup.append(eval_env)
         elif config.run == 'learning':
             assert config.replay.sync
             env.close()
