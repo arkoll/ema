@@ -168,11 +168,12 @@ defaults:
   dyndist_opt: {opt: adam, lr: 1e-4, eps: 1e-6, clip: 100.0, wd: 1e-2, wd_pattern: 'kernel'}
   dd_batch_size: 512
   dd_negatives: 0.1
-  report_goals: 10
-  goal_horizon: 50
   goal_shape: [2560] # should be the embed size
   goal_duration: 300
   horizon_to_find_goals: 10
+  explore_goals: DIAYN
+  eval_goals: DIAYN
+  goal_temp: 1
 
 dmlab:
 
@@ -227,8 +228,8 @@ loconav:
 
 diayn:
   task: loconav_ball_maze_s
-  encoder: {mlp_keys: '(absolute_position|walker/target_0)', cnn_keys: 'image'}
-  decoder: {mlp_keys: '(absolute_position|walker/target_0)', cnn_keys: 'image'}
+  encoder: {mlp_keys: '(absolute_position)', cnn_keys: 'image'}
+  decoder: {mlp_keys: '(absolute_position)', cnn_keys: 'image'}
   train.log_keys_max: '^log_cover.*'
   task_behavior: DIAYN
   skill_shape: [20]

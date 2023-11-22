@@ -103,60 +103,19 @@ def plot_episode_traj(rollout, episode, goals, update, update_exp):
     return img
 
 
-def plot_gtrajs(goal_true_coord, goal_traj):
+def plot_bgoals(cur_goals, saved_goals, goal_weights):
     fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
     ax.set_aspect('equal')
-    cmap = mpl.colormaps['tab20']
-    for g in range(goal_traj.shape[1]):
-        for s in range(goal_traj.shape[2]):
-            ax.plot(
-                goal_traj[:, g, s, 0], goal_traj[:, g, s, 1], color=cmap(g),
-                alpha=0.3, zorder=1
-            )
-    ax.scatter(
-        goal_true_coord[:, 0], goal_true_coord[:, 1],
-        color=cmap(range(goal_traj.shape[1])), s=20, zorder=2
+    cmap = mpl.colormaps['jet']
+    weights = (goal_weights - goal_weights.min()) / (
+        goal_weights.max() - goal_weights.min()
     )
     ax.scatter(
-        goal_traj[0, :, 0, 0], goal_traj[0, :, 0, 1], color='k', s=20, zorder=2
+        cur_goals[:, 0], cur_goals[:, 1], color=cmap(weights)
     )
-    fig.canvas.draw()
-    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-    img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
-    img = np.transpose(img, [1, 2, 0])
-    img = img.astype(float) / 255.  
-    plt.close(fig)
-    return img
-
-
-def plot_landmarks(goals, reward, max_traj):
-    fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
-    cmap = mpl.colormaps['viridis']
-    ax.set_aspect('equal')
-    indices = np.argsort(reward)
-    n_points = len(reward)
-    ax.plot(
-        max_traj[:, :, 0], max_traj[:, :, 1], color='r', alpha=0.3, zorder=1
+    ax.scatter(
+        saved_goals[:, 0], saved_goals[:, 1], marker='+', color=cmap(weights)
     )
-    for i, g in enumerate(indices):
-        ax.scatter(goals[g, 0], goals[g, 1], s=20, color=cmap(i / n_points))
-    fig.canvas.draw()
-    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-    img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
-    img = np.transpose(img, [1, 2, 0])
-    img = img.astype(float) / 255.  
-    plt.close(fig)
-    return img
-
-
-def plot_bgoals(cur_goals, saved_goals):
-    fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
-    ax.set_aspect('equal')
-    cmap = mpl.colormaps['tab20']
-    for i, sk in enumerate(cur_goals):
-        ax.scatter(sk[:, 0], sk[:, 1], color=cmap(i))
-    for i, sk in enumerate(saved_goals):
-        ax.scatter(sk[:, 0], sk[:, 1], color=cmap(i), marker='+')
     fig.canvas.draw()
     img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
     img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
@@ -172,10 +131,6 @@ def postprocess_report(data):
             data[key] = plot_goals(value)
         if 'skill_trajs' in key:
             data[key] = plot_trajs(*value)
-        if 'goal_trajs' in key:
-            data[key] = plot_gtrajs(*value)
-        if 'landmarks' in key:
-            data[key] = plot_landmarks(*value)
         if 'buffer_goals' in key:
             data[key] = plot_bgoals(*value)
     return data

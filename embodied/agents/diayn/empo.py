@@ -50,16 +50,19 @@ class DIAYN(tfutils.Module):
         self.dd_cur_idxs, self.dd_fut_idxs = self.get_future_idxs()
 
         # VAE landmarks
-        shape = config.landmark_shape
-        self.landmark_prior = tfutils.OneHotDist(tf.zeros(shape))
-        self.feat = nets.Input(['deter'])
-        self.goal_shape = (self.config.rssm.deter,)
-        self.goal_enc = nets.MLP(shape, dims='context', **config.goal_encoder)
-        self.goal_dec = nets.MLP(
-            self.goal_shape, dims='context', **self.config.goal_decoder
-        )
-        self.goal_kl = tfutils.AutoAdapt((), **self.config.encdec_kl)
-        self.goal_opt = tfutils.Optimizer('goal', **config.encdec_opt)
+        if self.config.explore_goals == 'VAE':
+            shape = config.landmark_shape
+            self.landmark_prior = tfutils.OneHotDist(tf.zeros(shape))
+            self.feat = nets.Input(['deter'])
+            self.goal_shape = (self.config.rssm.deter,)
+            self.goal_enc = nets.MLP(
+                shape, dims='context', **config.goal_encoder
+            )
+            self.goal_dec = nets.MLP(
+                self.goal_shape, dims='context', **self.config.goal_decoder
+            )
+            self.goal_kl = tfutils.AutoAdapt((), **self.config.encdec_kl)
+            self.goal_opt = tfutils.Optimizer('goal', **config.encdec_opt)
 
         # Explorer
         self.expl_reward = expl.Disag(wm, act_space, config)
@@ -95,7 +98,7 @@ class DIAYN(tfutils.Module):
         if mode == 'train' or mode == 'explore':
             goals = self.goal_buffer_embed
             bs = carry['goal'].shape[0]
-            goal = tfd.Categorical(logits=tf.zeros(goals.shape[0])).sample(bs)
+            goal = tfd.Categorical(probs=self.goal_buffer_prob).sample(bs)
             goal_pos = tf.gather(self.goal_buffer_pos, goal)
             goal = tf.gather(goals, goal)
             goal = sg(switch(carry['goal'], goal, update))
@@ -122,7 +125,8 @@ class DIAYN(tfutils.Module):
         # Disagreement
         metrics.update(self.expl_reward.train(data))
         # Landmarks
-        metrics.update(self.train_vae_replay(data))
+        if self.config.explore_goals == 'VAE':
+            metrics.update(self.train_vae_replay(data))
         # Explorer
         traj, mets = self.explorer.train(imagine, start, data)
         metrics.update({f'explorer_{k}': v for k, v in mets.items()})
@@ -148,16 +152,12 @@ class DIAYN(tfutils.Module):
         return None, metrics
     
     def update_goal_buffer(self):
-        n_skills = self.config.skill_shape[0]
-        n_samp = self.config.skill_samples
-        skill = tf.repeat(tf.eye(n_skills), n_samp, 0)
-        worker = lambda s: self.worker.actor({**s, 'skill': skill,}).sample()
-        traj = self.wm.rssm.initial(n_skills * n_samp)
-        traj['is_terminal'] = tf.zeros(n_skills * n_samp)
-        traj = self.wm.imagine(worker, traj, self.config.horizon_to_find_goals)
-        traj = {k: v[-1] for k, v in traj.items()}
-        embed = self.wm.heads['embed'](traj).mode()
-        position = self.wm.heads['decoder'](traj)['absolute_position'].mode()
+        goal_states = self.propose_explore_goals()
+        weights = self.eval_goals(goal_states)
+        embed = self.wm.heads['embed'](goal_states).mode()
+        position = self.wm.heads['decoder'](goal_states)[
+            'absolute_position'
+        ].mode()
         if not hasattr(self, "goal_buffer_pos"):
             self.goal_buffer_pos = tf.Variable(
                 tf.zeros_like(position), trainable=False, name="goal_buffer_pos"
@@ -166,10 +166,37 @@ class DIAYN(tfutils.Module):
             self.goal_buffer_embed = tf.Variable(
                 tf.zeros_like(embed), trainable=False, name="goal_buffer_embed"
             )
+        if not hasattr(self, "goal_buffer_prob"):
+            self.goal_buffer_prob = tf.Variable(
+                tf.zeros_like(weights), trainable=False, name="goal_buffer_prob"
+            )
         self.goal_buffer_embed.assign(embed)
         self.goal_buffer_pos.assign(position)
+        self.goal_buffer_prob.assign(weights)
 
-    def goal_proposal(self, start):
+    def propose_explore_goals(self):
+        if self.config.explore_goals == 'DIAYN':
+            n_skills = self.config.skill_shape[0]
+            n_samp = self.config.skill_samples
+            skill = tf.repeat(tf.eye(n_skills), n_samp, 0)
+            pi = lambda s: self.worker.actor({**s, 'skill': skill,}).sample()
+            traj = self.wm.rssm.initial(n_skills * n_samp)
+            traj['is_terminal'] = tf.zeros(n_skills * n_samp)
+            traj = self.wm.imagine(pi, traj, self.config.horizon_to_find_goals)
+            goals = {k: v[-1] for k, v in traj.items()}
+        elif self.config.explore_goals == 'VAE':
+            landmarks = tf.eye(self.config.landmark_shape[0])
+            goals = self.goal_dec(
+                {'landmark': landmarks, 'context': landmarks}
+            ).mode()
+            goals = {
+                'deter':  tf.cast(goals, tf.float16),
+                'stoch': self.wm.rssm.get_stoch(goals),
+                **self.wm.rssm.get_stats(goals)
+            }
+        return goals
+
+    def propose_train_goals(self, start):
         goal = start['embed']
         ids = tf.random.shuffle(tf.range(tf.shape(goal)[0]))
         goal = tf.gather(goal, ids)
@@ -233,7 +260,7 @@ class DIAYN(tfutils.Module):
     
     def train_achiever(self, imagine, start):
         start = start.copy()
-        goal = self.goal_proposal(start)
+        goal = self.propose_train_goals(start)
         sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)
         with tf.GradientTape(persistent=True) as tape:
             achiever = lambda s: self.achiever.actor(
@@ -273,34 +300,36 @@ class DIAYN(tfutils.Module):
         return metrics
     
     def eval_goals(self, goals):
-        start = {
-            'deter': tf.cast(goals, tf.float16),
-            'stoch': self.wm.rssm.get_stoch(goals),
-            **self.wm.rssm.get_stats(goals)
-        }
-        n_goals = goals.shape[0]
-        start['is_terminal'] = tf.zeros(n_goals)
-        samples = self.config.expl_samples
-        start = {
-            k: tf.repeat(v, samples, 0) for k, v in start.items()
-        }
-        explorer = lambda s: self.explorer.actor({**s}).sample()
-        traj = self.wm.imagine(explorer, start, self.config.expl_horizon)
-        reward = self.expl_reward(traj)
+        if self.config.eval_goals == 'DIAYN':
+            n_skills = self.config.skill_shape[0]
+            n_goals = goals['deter'].shape[0]
+            skill = tf.tile(tf.eye(n_skills), [n_goals, 1])
+            start = {
+                k: tf.repeat(v, n_skills, 0) for k, v in goals.items()
+            }
+            start['skill'] = skill
+            weights = self.worker.critics['diayn'].net(start).mode()
+            weights = tf.reshape(weights, [n_goals, n_skills])
+            weights = tf.reduce_mean(weights, 1)
+        elif self.config.eval_goals == 'Explore':
+            start = goals.copy()
+            n_goals = goals['deter'].shape[0]
+            start['is_terminal'] = tf.zeros(n_goals)
+            samples = self.config.expl_samples
+            start = {k: tf.repeat(v, samples, 0) for k, v in start.items()}
+            explorer = lambda s: self.explorer.actor({**s}).sample()
+            traj = self.wm.imagine(explorer, start, self.config.expl_horizon)
+            reward = self.expl_reward(traj)
+            length = self.config.expl_horizon
+            reward = tf.reshape(reward, (length, n_goals, samples, -1))
+            weights = tf.squeeze(reward.mean([0, 2]))
+        weights = (weights - weights.min()) / (
+            weights.max() - weights.min()
+        )
+        weights = tf.exp(weights * self.config.goal_temp)
+        weights = weights / weights.sum()
+        return weights
 
-        length = self.config.expl_horizon
-        reward = tf.reshape(reward, (length, n_goals, samples, -1))
-        reward = tf.squeeze(reward.mean([0, 2]))
-        max_ind = tf.argmax(reward)
-        decoder = self.wm.heads['decoder']
-        traj = {
-            k: tf.gather(tf.reshape(
-                v, (length + 1, n_goals, samples,) + v.shape[2:]
-            ), [max_ind], axis=1) 
-            for k, v in traj.items()
-        }
-        traj = tf.squeeze(decoder(traj)['absolute_position'].mode())
-        return reward, traj
     
     def goal_reward(self, traj):
         embed = self.wm.heads['embed'](traj).mode()
@@ -332,28 +361,6 @@ class DIAYN(tfutils.Module):
         rollout = tf.reshape(rollout, (length, n_skills, n_samp, -1))
         outputs = {'skill_trajs': (initial, rollout)}
 
-        # Imagine goal trajs from random start
-        n_goals = self.config.report_goals
-        start = self.wm.rssm.initial(n_goals * n_samp)
-        start['is_terminal'] = tf.zeros(n_goals * n_samp)
-        goal = self.wm.encoder(data)
-        goal = tf.reshape(goal, [-1, goal.shape[-1]])
-        ids = tf.random.shuffle(tf.range(tf.shape(goal)[0]))[:n_goals]
-        goal = tf.gather(goal, ids)
-        goal = tf.repeat(goal, n_samp, 0)
-        achiever = lambda s: self.achiever.actor({**s, 'goal': goal,}).sample()
-        horizon = self.config.goal_horizon
-        traj = self.wm.imagine(achiever, start, horizon)
-        traj['goal'] = tf.repeat(goal[None], 1 + horizon, 0)
-        traj['embed'] = self.wm.heads['embed'](traj).mode()
-        grew = self.goal_reward(traj).mean()
-        outputs['grew'] = grew
-        goal_true_coord = tf.reshape(data['absolute_position'], [-1, 3])
-        goal_true_coord = tf.gather(goal_true_coord, ids)
-        goal_traj = decoder(traj)['absolute_position'].mode()
-        goal_traj = tf.reshape(goal_traj, [horizon + 1, n_goals, n_samp, -1])
-        outputs['goal_trajs'] = (goal_true_coord, goal_traj)
-
         # Imagine skill trajs from start
         start = self.wm.rssm.initial(n_skills * n_samp)
         start['is_terminal'] = tf.zeros(n_skills * n_samp)
@@ -366,17 +373,7 @@ class DIAYN(tfutils.Module):
         )
         outputs['skill_goals'] = skill_goals
 
-        # Eval VAE goals
-        landmarks = tf.eye(self.config.landmark_shape[0])
-        goals = self.goal_dec(
-            {'landmark': landmarks, 'context': landmarks}
-        ).mode()
-        reward, max_traj = self.eval_goals(goals)
-        goals = decoder(
-            {'deter': goals, 'stoch': self.wm.rssm.get_stoch(goals)}
-        )['absolute_position'].mode()
-        outputs['landmarks'] = (goals, reward, max_traj)
-
+        # Explore buffer goals
         goals = self.goal_buffer_embed
         states, _ = self.wm.rssm.observe(
             tf.expand_dims(goals, 1).astype(tf.float16), 
@@ -384,7 +381,7 @@ class DIAYN(tfutils.Module):
             tf.ones((goals.shape[0], 1))
         )
         goals = tf.squeeze(decoder(states)['absolute_position'].mode())
-        goals = tf.reshape(goals,  (n_skills, n_samp, -1))
-        saved_goals = tf.reshape(self.goal_buffer_pos,  (n_skills, n_samp, -1))
-        outputs['buffer_goals'] = (goals, saved_goals)
+        saved_goals = self.goal_buffer_pos
+        goal_weights = self.goal_buffer_prob
+        outputs['buffer_goals'] = (goals, saved_goals, goal_weights)
         return outputs
