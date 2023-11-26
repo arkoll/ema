@@ -158,7 +158,7 @@ defaults:
   disag_head: {layers: 4, units: 400, act: elu, norm: layer, dist: mse, inputs: [deter, stoch, action]}
   expl_opt: {opt: adam, lr: 1e-4, eps: 1e-6, clip: 100.0, wd: 1e-2}
   disag_target: [stoch]
-  disag_models: 8
+  disag_models: 10
   ctrl_embed: {layers: 3, units: 512, act: elu, norm: layer, dist: mse, inputs: [deter, stoch]}
   ctrl_head: {layers: 1, units: 128, act: elu, norm: layer, dist: mse, inputs: [current, next]}
   ctrl_size: 32
