@@ -117,7 +117,7 @@ class Hierarchy(tfutils.Module):
         ids = tf.random.shuffle(tf.range(tf.shape(goal_embed)[0]))
         loag = tf.gather(real_goal, ids)
         loag = tf.reshape(loag, sh)
-        return loag.reshape((45*50, 2))
+        return loag.reshape((-1, 2))
 
     def train(self, imagine, start, data):
         loag = self.get_loag(data)
