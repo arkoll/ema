@@ -96,6 +96,18 @@ defaults:
   critic_type: vfunction
   rewnorm_discount: False
 
+  # Dynamical distance
+  dd_inp : 'embed'
+  dd_num_positives : 256
+  dd_neg_sampling_factor : 0.0
+  dd_norm_inp : False
+  dd_norm_reg_label : True
+  dd_train_imag : True
+  dd_train_off_policy : False
+  dd_distance : 'steps_to_go'
+  dd_loss : 'regression'
+  dd_prob_balance: 1.0
+  dd_opt: {opt: adam, lr: 8e-5, eps: 1e-5, clip: 100, wd: 1e-6}
 
   # DIAYN
   n_skills: 15
@@ -108,6 +120,7 @@ defaults:
 
   # HRL
   skill_type: DIAYN
+  gc_reward: euclid
   env_skill_duration: 5
   train_skill_duration: 5
   skill_shape: [5, 5]
