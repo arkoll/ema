@@ -5,11 +5,13 @@ import ruamel.yaml as yaml
 import tensorflow as tf
 from tensorflow.keras import mixed_precision as prec
 from tensorflow_probability import distributions as tfd
+import numpy as np
 
 from . import behaviors
 from . import nets
 from . import tfagent
 from . import tfutils
+from . import dists
 
 
 class Agent(tfagent.TFAgent):
@@ -24,8 +26,21 @@ class Agent(tfagent.TFAgent):
         self.act_space = act_space['action']
         self.step = step
         self.wm = WorldModel(obs_space, config)
-        self.task_behavior = getattr(behaviors, config.task_behavior)(
-                self.wm, self.act_space, self.config)
+        self.extr_reward = self.loag_reward
+        if self.config.gc_reward == 'dd':
+            self.dd = dists.DynDist(config,
+                                    out_dim = 1,
+                                    input_type = self.config.dd_inp,
+                                    units = 400,
+                                    normalize_input = self.config.dd_norm_inp)
+        taskconfig = config.update({
+                'actor.inputs': ['deter', 'stoch', 'loag'],
+                'critic.inputs': ['deter', 'stoch', 'loag'],
+                'worker_rews': {'extr': 1., 'expl': 0., 'goal': 0.}
+        })
+        self.task_behavior = GCActorCritic(self.wm, {
+                'extr': VFunction(lambda s: self.extr_reward(s), taskconfig),
+        }, taskconfig.worker_rews, self.act_space, taskconfig)
         if config.expl_behavior == 'None':
             self.expl_behavior = self.task_behavior
         else:
@@ -56,16 +71,18 @@ class Agent(tfagent.TFAgent):
         else:
             loag = obs['loag']
             latent['loag'] = loag
+        # dat = {'observation': loag}
+        # latent['loag'] = self.wm.encoder(dat)
         if mode == 'eval':
             noise = self.config.eval_noise
-            outs, task_state = self.task_behavior.policy(latent, task_state,  mode=mode)
+            outs, task_state = self.task_behavior.policy(latent, task_state)
             outs = {**outs, 'action': outs['action'].mode()}
         elif mode == 'explore':
             outs, expl_state = self.expl_behavior.policy(latent, expl_state,  mode=mode)
-            outs = {**outs, 'action': outs['action'].sample()}
+            outs = {**outs, 'action': outs['action']}
         elif mode == 'train':
-            outs, task_state = self.task_behavior.policy(latent, task_state,  mode=mode)
-            outs = {**outs, 'action': outs['action'].sample()}
+            outs, task_state = self.task_behavior.policy(latent, task_state)
+            outs = {**outs, 'action': outs['action']}
         outs = {**outs, 'action': tfutils.action_noise(
                 outs['action'], noise, self.act_space)}
         latent.pop('loag', None)
@@ -77,6 +94,18 @@ class Agent(tfagent.TFAgent):
         shape = (batch_size, ) + self.obs_shape
         goal = tf.random.uniform(shape, minval=0, maxval=9)
         return goal.astype(tf.float16)
+    
+    def loag_reward(self, traj):
+        loag = tf.stop_gradient(traj['loag'].astype(tf.float32))
+        if self.config.gc_reward == 'euclid':
+            feat = self.wm.heads['decoder'](traj)['observation'].mode().astype(tf.float32)
+            return -tf.math.sqrt(tf.square(loag-feat).sum(axis=2))[1:]
+        elif self.config.gc_reward == 'dd':
+            data = {'observation': loag}
+            goal_embed = loag # self.wm.encoder(data)
+            inp_embed = tf.cast(self.wm.heads['embed'](traj).mode(), goal_embed.dtype)
+            out = -self.dd(tf.concat([inp_embed, goal_embed], axis =-1))
+            return out[1:].astype(tf.float32)
 
     @tf.function
     def train(self, data, state=None):
@@ -90,7 +119,7 @@ class Agent(tfagent.TFAgent):
         context = {**data, **wm_outs['post']}
         start = tf.nest.map_structure(
                 lambda x: x.reshape([-1] + list(x.shape[2:])), context)
-        _, mets = self.task_behavior.train(self.wm.imagine, start, context)
+        _, mets = self.task_behavior.train(self.wm.imagine_carry, start, context)
         metrics.update(mets)
         if self.config.expl_behavior != 'None':
             _, mets = self.expl_behavior.train(self.wm.imagine, start, context)
@@ -107,8 +136,8 @@ class Agent(tfagent.TFAgent):
         data = self.preprocess(data)
         report = {}
         report.update(self.wm.report(data))
-        mets = self.task_behavior.report(data)
-        report.update({f'task_{k}': v for k, v in mets.items()})
+        # mets = self.task_behavior.report(data)
+        # report.update({f'task_{k}': v for k, v in mets.items()})
         if self.expl_behavior is not self.task_behavior:
             mets = self.expl_behavior.report(data)
             report.update({f'expl_{k}': v for k, v in mets.items()})
