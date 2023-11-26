@@ -59,7 +59,7 @@ docker run --env WANDB_API_KEY=$WANDB_API_KEY --rm -it -d --gpus all -v $(pwd):/
 Train agent:
 
 ```sh
-python embodied/agents/go_explore/train.py \
+python embodied/agents/director/train.py \
   --logdir ~/logdir/$(date +%Y%m%d-%H%M%S) \
   --configs pointmaze 
 ```
