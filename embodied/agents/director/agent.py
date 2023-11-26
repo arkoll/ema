@@ -177,6 +177,137 @@ class Agent(tfagent.TFAgent):
         obs['cont'] = 1.0 - obs['is_terminal'].astype(tf.float32)
         return obs
 
+class GCActorCritic(tfutils.Module):
+
+    def __init__(self, wm, critics, scales, act_space, config):
+        critics = {k: v for k, v in critics.items() if scales[k]}
+        # for key, scale in scales.items():
+        #     assert not scale or key in critics, key
+        self.wm = wm
+        self.critics = {k: v for k, v in critics.items() if scales[k]}
+        self.scales = scales
+        self.act_space = act_space
+        self.config = config
+        self.actor = nets.MLP(act_space.shape, **self.config.actor, dist=(
+                config.actor_dist_disc if act_space.discrete
+                else config.actor_dist_cont))
+        self.grad = (
+                config.actor_grad_disc if act_space.discrete
+                else config.actor_grad_cont)
+        self.advnorm = tfutils.Normalize(**self.config.advnorm)
+        self.retnorms = {
+                k: tfutils.Normalize(**self.config.retnorm) for k in self.critics}
+        self.scorenorms = {
+                k: tfutils.Normalize(**self.config.scorenorm) for k in self.critics}
+        if self.config.actent_perdim:
+            shape = act_space.shape[:-1] if act_space.discrete else act_space.shape
+            self.actent = tfutils.AutoAdapt(
+                    shape, **self.config.actent, inverse=True)
+        else:
+            self.actent = tfutils.AutoAdapt((), **self.config.actent, inverse=True)
+        self.opt = tfutils.Optimizer('actor', **self.config.actor_opt)
+
+    def initial(self, batch_size):
+        return None
+
+    def policy(self, state, carry):
+        return {'action': self.actor(state)}, carry
+    
+    def loag_reward(self, traj):
+        loag = tf.stop_gradient(traj['loag'].astype(tf.float32))
+        if self.config.gc_reward == 'euclid':
+            feat = self.wm.heads['decoder'](traj)['observation'].mode().astype(tf.float32)
+            return -tf.math.sqrt(tf.square(loag-feat).sum(axis=2))[1:]
+        elif self.config.gc_reward == 'dd':
+            data = {'observation': loag}
+            goal_embed = self.wm.encoder(data)
+            inp_embed = tf.cast(self.wm.heads['embed'](traj).mode(), goal_embed.dtype)
+            out = -self.dd(tf.concat([inp_embed, goal_embed], axis =-1))
+            return out[1:].astype(tf.float32)
+    
+    def get_loag(self, data):
+        real_goal = data['observation']
+        sh = real_goal.shape
+        goal_embed = self.wm.encoder(data)
+        goal_embed = goal_embed.reshape([-1] + list(goal_embed.shape[2:]))
+        real_goal = real_goal.reshape([-1] + list(real_goal.shape[2:]))
+        ids = tf.random.shuffle(tf.range(tf.shape(goal_embed)[0]))
+        goal_embed = tf.gather(goal_embed, ids)
+        loag = tf.gather(real_goal, ids)
+        return loag
+
+    def train(self, imagine, start, context):
+        loag = self.get_loag(context)
+        policy = lambda s: self.actor(tf.nest.map_structure(
+                tf.stop_gradient, s)).sample()
+        with tf.GradientTape(persistent=True) as tape:
+            traj = imagine(self.policy, start, self.config.imag_horizon, {}, loag)
+        metrics = self.update(traj, tape)
+        return traj, metrics
+
+    def update(self, traj, tape=None):
+        tape = tape or tf.GradientTape()
+        metrics = {}
+        for key, critic in self.critics.items():
+            mets = critic.train(traj, self.actor)
+            metrics.update({f'{key}_{k}': v for k, v in mets.items()})
+        with tape:
+            scores = []
+            for key, critic in self.critics.items():
+                ret, baseline = critic.score(traj, self.actor)
+                ret = self.retnorms[key](ret)
+                baseline = self.retnorms[key](baseline, update=False)
+                score = self.scorenorms[key](ret - baseline)
+                metrics[f'{key}_score_mean'] = score.mean()
+                metrics[f'{key}_score_std'] = score.std()
+                metrics[f'{key}_score_mag'] = tf.abs(score).mean()
+                metrics[f'{key}_score_max'] = tf.abs(score).max()
+                scores.append(score * self.scales[key])
+            score = self.advnorm(tf.reduce_sum(scores, 0))
+            loss, mets = self.loss(traj, score)
+            metrics.update(mets)
+            loss = loss.mean()
+        metrics.update(self.opt(tape, loss, self.actor))
+        return metrics
+
+    def loss(self, traj, score):
+        metrics = {}
+        policy = self.actor(tf.nest.map_structure(tf.stop_gradient, traj))
+        action = tf.stop_gradient(traj['action'])
+        if self.grad == 'backprop':
+            loss = -score
+        elif self.grad == 'reinforce':
+            loss = -policy.log_prob(action)[:-1] * tf.stop_gradient(score)
+        else:
+            raise NotImplementedError(self.grad)
+
+        shape = (
+                self.act_space.shape[:-1] if self.act_space.discrete
+                else self.act_space.shape)
+        if self.config.actent_perdim and len(shape) > 0:
+            assert isinstance(policy, tfd.Independent), type(policy)
+            ent = policy.distribution.entropy()[:-1]
+            if self.config.actent_norm:
+                lo = policy.minent / ent.shape[-1]
+                hi = policy.maxent / ent.shape[-1]
+                ent = (ent - lo) / (hi - lo)
+            ent_loss, mets = self.actent(ent)
+            ent_loss = ent_loss.sum(-1)
+
+        else:
+
+            ent = policy.entropy()[:-1]
+            if self.config.actent_norm:
+                lo, hi = policy.minent, policy.maxent
+                ent = (ent - lo) / (hi - lo)
+            ent_loss, mets = self.actent(ent)
+
+        metrics.update({f'actent_{k}': v for k, v in mets.items()})
+        loss += ent_loss
+        loss *= tf.stop_gradient(traj['weight'])[:-1]
+        return loss, metrics
+
+
 
 class WorldModel(tfutils.Module):
 
