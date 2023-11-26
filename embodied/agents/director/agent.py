@@ -238,10 +238,14 @@ class WorldModel(tfutils.Module):
         traj = tfutils.scan(
                 step, tf.range(horizon), start, self.config.imag_unroll)
         traj = {k: tf.concat([start[k][None], v], 0) for k, v in traj.items()}
-        traj['cont'] = tf.concat([
-                first_cont[None], self.heads['cont'](traj).mean()[1:]], 0)
+        if self.config.pred_cont:
+            cont = self.heads['cont'](traj).mean()[1:]
+        else:
+            cont = tf.ones(traj['action'][:-1].shape[:-1])
+        cont = tf.concat([first_cont[None], cont], 0)
+        traj['cont'] = cont
         traj['weight'] = tf.math.cumprod(
-                self.config.discount * traj['cont']) / self.config.discount
+                self.config.imag_discount * cont) / self.config.imag_discount
         return traj
 
     def imagine_carry(self, policy, start, horizon, carry, loag):
