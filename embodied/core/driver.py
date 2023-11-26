@@ -189,7 +189,8 @@ class EvalDriver:
             self.logger.scalar(f'success/goal_{i}', np.mean(met['success']))
         self.logger.scalar(f'dist/goal_all', np.mean([np.mean(met['dist']) for met in metrics]))
         self.logger.scalar(f'success/goal_all', np.mean([np.mean(met['success']) for met in metrics]))
-        self.logger.image('buffer', self.drawer.draw())
+        for name, image in self.drawer.draw().items():
+            self.logger.image(name, image)
 
 
     def _step(self, policy, goal, step=0, episode=0):

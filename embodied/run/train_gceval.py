@@ -12,7 +12,8 @@ class BufferDrawer():
         self.buffer = {'states': {'x': [], 'y': []},
                        'estates': {'x': [], 'y': []},
                        'goals': {'x': [], 'y': []}}
-        self.ax = plt.subplot(1, 1, 1) 
+        self.ax = plt.subplot(1, 1, 1)
+        self.prev_step = 0
 
     def add_traj(self, trajs):
         for traj in trajs:
@@ -23,22 +24,45 @@ class BufferDrawer():
                 self.buffer['states']['y'].append(xy[1])  
             for xy in traj['observation'][25:]:
                 self.buffer['estates']['x'].append(xy[0])
-                self.buffer['estates']['y'].append(xy[1])        
+                self.buffer['estates']['y'].append(xy[1])
+            self.prev_step += 25
 
     def draw(self):
         self.fig, self.ax = plt.subplots(1, 1)
         self.ax.scatter(self.buffer['states']['x'], self.buffer['states']['y'], s=0.1, color='green')
         self.ax.scatter(self.buffer['estates']['x'], self.buffer['estates']['y'], s=0.1, color='red')
         self.ax.scatter(self.buffer['goals']['x'], self.buffer['goals']['y'], s=0.1, color='blue')
+        self.ax.scatter([9.5], [9.5], s=0.01, color='black')
+        self.ax.scatter([-0.5], [-0.5], s=0.01, color='black')
         fig = self.ax.figure
         fig.canvas.draw()
         # Now we can save it to a numpy array.
         data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
         data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-        for k in self.buffer:
-            for k2 in self.buffer[k]:
-                self.buffer[k][k2] = []
-        return data[None, ...]
+        # for k in self.buffer:
+        #     for k2 in self.buffer[k]:
+        #         self.buffer[k][k2] = []
+        full_buf = data[None, ...]
+
+        self.fig, self.ax = plt.subplots(1, 1)
+        self.ax.scatter(self.buffer['states']['x'][self.prev_step:], self.buffer['states']['y'][self.prev_step:], s=0.1, color='green')
+        self.ax.scatter(self.buffer['estates']['x'][self.prev_step:], self.buffer['estates']['y'][self.prev_step:], s=0.1, color='red')
+        self.ax.scatter(self.buffer['goals']['x'][self.prev_step:], self.buffer['goals']['y'][self.prev_step:], s=0.1, color='blue')
+        self.ax.scatter([9.5], [9.5], s=0.01, color='black')
+        self.ax.scatter([-0.5], [-0.5], s=0.01, color='black')
+        fig = self.ax.figure
+        fig.canvas.draw()
+        # Now we can save it to a numpy array.
+        data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        # for k in self.buffer:
+        #     for k2 in self.buffer[k]:
+        #         self.buffer[k][k2] = []
+        recent_buf = data[None, ...]
+        return {
+            'full_buffer': full_buf,
+            'recent_buffer': recent_buf
+        }
         
 
 def train_gceval(agent, env, eval_env, replay, logger, args):
