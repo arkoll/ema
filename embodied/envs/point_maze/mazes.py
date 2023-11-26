@@ -347,6 +347,27 @@ segments_crazy = [
     {'anchor': '9,9', 'direction': 'down', 'name': '9,8'}
 ]
 
+# empty = [
+#     {'anchor': 'origin', 'direction': 'right', 'name': '1,0'},
+#     {'anchor': 'origin', 'direction': 'up', 'name': '0,1'}
+# ]
+
+# for i in range(9):
+#     for j in range(9):
+#         if i == 0 and j == 0:
+#             continue
+#         empty.append(
+#             {'anchor': f'{i},{j}', 'direction': 'up', 'name': f'{i+1},{j}'}
+#         )
+#         empty.append(
+#             {'anchor': f'{i},{j}', 'direction': 'right', 'name': f'{i},{j+1}'}
+#         )
+
+# for i in range(len(segments_crazy)):
+#     if segments_crazy[i]['name'][0] not in ['0', '9']\
+#         and segments_crazy[i]['name'][2] not in ['0', '9']:
+#         segments_crazy[i]['connect'] = ['up', 'down', 'right', 'left']
+
 # Square Large
 mazes_dict['square_large'] = {
     'maze': Maze(*segments_crazy, goal_squares='9,9'),
