@@ -6,6 +6,39 @@ import warnings
 import embodied
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib as mpl
+
+
+def plot_trajs(initial, rollout):
+    fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
+    cmap = mpl.colormaps['tab20']
+    ax.set_aspect('equal')
+    for sk in range(rollout.shape[1]):
+        for s in range(rollout.shape[2]):
+            points = rollout[:, sk, s, :2]
+            ax.scatter(points[:, 0], points[:, 1], s=5, color=cmap(sk))
+    ax.scatter(initial[0], initial[1], s=20, color='k')
+    fig.canvas.draw()
+    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
+    img = np.transpose(img, [1, 2, 0])
+    img = img.astype(float) / 255.  
+    plt.close(fig)
+    return img.transpose(2, 0, 1)[None, ]
+
+def postprocess_report(data):
+    for key, value in data.items():
+        if 'skill_goals' in key:
+            data[key] = plot_goals(value)
+        if 'skill_trajs' in key:
+            data[key] = plot_trajs(*value)
+        if 'goal_trajs' in key:
+            data[key] = plot_gtrajs(*value)
+        if 'landmarks' in key:
+            data[key] = plot_landmarks(*value)
+        if 'buffer_goals' in key:
+            data[key] = plot_bgoals(*value)
+    return data
 
 class BufferDrawer():
     def __init__(self) -> None:
@@ -147,7 +180,9 @@ def train_gceval(agent, env, eval_env, replay, logger, args):
                 for name, values in metrics.items():
                     logger.scalar('train/' + name, np.nanmean(values, dtype=np.float64))
                     metrics[name].clear()
-            logger.add(agent.report(batch[0]), prefix='report')
+            logger.add(
+                postprocess_report(agent.report(batch[0])), prefix='report'
+            )
             logger.add(timer.stats(), prefix='timer')
             logger.write(fps=True)
     driver.on_step(train_step)

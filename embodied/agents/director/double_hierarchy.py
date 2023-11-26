@@ -531,6 +531,28 @@ class Hierarchy(tfutils.Module):
         return traj
 
     def report(self, data):
+        states, _ = self.wm.rssm.observe(
+            self.wm.encoder(data)[:1], data['action'][:1],
+            data['is_first'][:1]
+        )
+        n_skills = self.config.n_skills
+        n_samp = self.config.skill_samples
+        skill = tf.repeat(tf.eye(n_skills), n_samp, 0)
+        worker = lambda s: self.worker.actor.actor({**s, 'skill': skill,}).sample()
+        decoder = self.wm.heads['decoder']
+        
+        # Imagine skill trajs from random state
+        start = {k: v[:1, 4] for k, v in states.items()}
+        start['is_terminal'] = data['is_terminal'][:1, 4]
+        start = {
+            k: tf.repeat(v, n_skills * n_samp, 0) for k, v in start.items()
+        }
+        traj = self.wm.imagine(worker, start, self.config.worker_report_horizon)
+        initial = decoder(start)['observation'].mode()[0]
+        rollout = decoder(traj)['observation'].mode()
+        length = 1 + self.config.worker_report_horizon
+        rollout = tf.reshape(rollout, (length, n_skills, n_samp, -1))
+        return {'skill_trajs': (initial, rollout)}
         return {}
         metrics = {}
         for impl in ('manager', 'prior', 'replay'):
