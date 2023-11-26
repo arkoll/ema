@@ -303,6 +303,75 @@ class WorldModel(tfutils.Module):
         return report
 
 
+class DIAYN(tfutils.Module):
+
+    def __init__(self, wm, act_space, config):
+        self.wm = wm
+        self.act_space = act_space
+        self.config = config
+        self.discriminator = nets.MLP((self.config.n_skills, ), **self.config.discriminator, dist='onehot')
+        self.skill_space = embodied.Space(np.int32, (config.n_skills, ))
+
+        wconfig = config.update({
+                'actor.inputs': ['deter', 'stoch', 'skill'],
+                'critic.inputs': ['deter', 'stoch', 'skill'],
+        })
+        self.actor = ImagActorCritic({
+            'intr': VFunction(lambda s: self.reward(s), self.config),
+        }, {'intr': 1.}, self.act_space, wconfig)
+        self.feat = nets.Input(['deter'])
+        self.discr_opt = tfutils.Optimizer('discr', **self.config.discr_opt)
+
+    def initial(self, batch_size):
+        return {
+                'step': tf.zeros((batch_size,), tf.int64),
+                'skill': tf.zeros((batch_size,) + (self.config.n_skills, ), tf.float32),
+        }
+    
+    def policy(self, state, carry):
+        duration = self.config.train_skill_duration * 100
+        if 'skill' in state:
+            carry['skill'] = state['skill']
+        else:
+            if (carry['step'] % duration == 0).all():
+                carry['skill'] = self.get_skill(carry['step'].shape[0])
+        state['skill'] = carry['skill']
+        return {'action': self.actor.actor(state)}, {'step': carry['step'] + 1, 'skill': carry['skill']}
+    
+    def train(self, start):
+        policy = lambda s: self.policy(tf.nest.map_structure(
+                tf.stop_gradient, s)).sample()
+        with tf.GradientTape(persistent=True) as tape:
+            traj = self.wm.imagine_carry_no_goal(self.policy, start,
+                                                 self.config.train_skill_duration,
+                                                 self.initial(start['observation'].shape[0]))
+        return traj, self.update(traj, tape)
+    
+    def update(self, traj, tape):
+        sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)
+        with tape:
+            loss = self.discr_loss(sg(traj), tape).mean()
+
+        self.discr_opt(tape, loss, self.discriminator)
+        metrics = self.actor.update(traj, tape)
+        return traj, metrics
+    
+    def discr_loss(self, traj, tape):
+        pred = self.discriminator(traj)
+        loss = -pred.log_prob(traj['skill'])
+        return loss
+
+    def get_skill(self, batch):
+        ind = tf.random.uniform(shape=(batch, ), maxval=self.config.n_skills)
+        return tf.one_hot(indices=ind.astype(tf.int32), depth=self.config.n_skills)
+    
+    def reward(self, traj):
+        reward = self.discriminator(traj).log_prob(traj['skill'])\
+            - tf.math.log(1/self.config.n_skills)\
+            # + self.config.entr_alpha*self.actor.actor(traj).distribution.entropy().sum(-1)
+        return reward[:-1]
+
+
 class ImagActorCritic(tfutils.Module):
 
     def __init__(self, critics, scales, act_space, config):

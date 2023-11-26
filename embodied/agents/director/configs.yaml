@@ -38,8 +38,8 @@ defaults:
     sync_every: 180
 
   # Agent
-  task_behavior: Hierarchy
-  expl_behavior: None
+  task_behavior: gcac
+  expl_behavior: Hierarchy
   batch_size: 16
   transform_rewards: off
   expl_noise: 0.0
@@ -96,7 +96,18 @@ defaults:
   critic_type: vfunction
   rewnorm_discount: False
 
+
+  # DIAYN
+  n_skills: 15
+  discr_opt: {opt: adam, lr: 1e-4, eps: 1e-6, clip: 100.0, wd: 1e-2, wd_pattern: 'kernel'}
+  discriminator: {layers: 3, units: 400, act: elu, norm: layer, minstd: 0.03, maxstd: 1.0, outscale: 0.1, unimix: 0.01, inputs: ['deter', 'stoch']}
+  entr_alpha: 0.1
+  expl_skill: False
+  skill_samples: 5
+
+
   # HRL
+  skill_type: DIAYN
   env_skill_duration: 5
   train_skill_duration: 5
   skill_shape: [5, 5]

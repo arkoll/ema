@@ -15,6 +15,8 @@ class Hierarchy(tfutils.Module):
 
     def __init__(self, wm, act_space, config):
         self.wm = wm
+        if config.skill_type == 'DIAYN':
+            config = config.update({'skill_shape': (config.n_skills + int(config.expl_skill), )})
         self.config = config
         # self.extr_reward = lambda traj: self.wm.heads['reward'](traj).mean()[1:]
         self.extr_reward = self.loag_reward
@@ -26,9 +28,12 @@ class Hierarchy(tfutils.Module):
                 'actor.inputs': self.config.worker_inputs,
                 'critic.inputs': self.config.worker_inputs,
         })
-        self.worker = agent.ImagActorCritic({
-                'goal': agent.VFunction(lambda s: s['reward_goal'], wconfig),
-        }, config.worker_rews, act_space, wconfig)
+        if self.config.skill_type == 'gc_ac':
+            self.worker = agent.ImagActorCritic({
+                    'goal': agent.VFunction(lambda s: s['reward_goal'], wconfig),
+            }, config.worker_rews, act_space, wconfig)
+        elif self.config.skill_type == 'DIAYN':
+            self.worker = agent.DIAYN(wm, act_space, config)
 
         mconfig = config.update({
                 'actor_grad_cont': 'reinforce',
@@ -58,7 +63,7 @@ class Hierarchy(tfutils.Module):
             self.expl_reward = self.elbo_reward
         else:
             raise NotImplementedError(self.config.expl_rew)
-        if config.explorer:
+        if config.explorer or self.config.expl_skill:
             self.explorer = agent.ImagActorCritic({
                     'expl': agent.VFunction(self.expl_reward, config),
             }, {'expl': 1.0}, act_space, config)
@@ -73,12 +78,13 @@ class Hierarchy(tfutils.Module):
 
         self.feat = nets.Input(['deter'])
         self.goal_shape = (self.config.rssm.deter,)
-        self.enc = nets.MLP(
-                config.skill_shape, dims='context', **config.goal_encoder)
-        self.dec = nets.MLP(
-                self.goal_shape, dims='context', **self.config.goal_decoder)
-        self.kl = tfutils.AutoAdapt((), **self.config.encdec_kl)
-        self.opt = tfutils.Optimizer('goal', **config.encdec_opt)
+        if self.config.skill_type == 'gc_ac':
+            self.enc = nets.MLP(
+                    config.skill_shape, dims='context', **config.goal_encoder)
+            self.dec = nets.MLP(
+                    self.goal_shape, dims='context', **self.config.goal_decoder)
+            self.kl = tfutils.AutoAdapt((), **self.config.encdec_kl)
+            self.opt = tfutils.Optimizer('goal', **config.encdec_opt)
 
     def initial(self, batch_size):
         return {
@@ -92,27 +98,39 @@ class Hierarchy(tfutils.Module):
                 self.config.env_skill_duration)
         sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)
         update = (carry['step'] % duration) == 0
+        new_goal = carry['goal']
         if mode in ['train', 'explore']:
             switch = lambda x, y: (
                     tf.einsum('i,i...->i...', 1 - update.astype(x.dtype), x) +
                     tf.einsum('i,i...->i...', update.astype(x.dtype), y))
             skill = sg(switch(carry['skill'], self.expl_manager.actor(sg(latent)).sample()))
-            new_goal = self.dec({'skill': skill, 'context': self.feat(latent)}).mode()
-            new_goal = (
-                    self.feat(latent).astype(tf.float32) + new_goal
-                    if self.config.manager_delta else new_goal)
+            if self.config.skill_type == 'gc_ac':
+                new_goal = self.dec({'skill': skill, 'context': self.feat(latent)}).mode()
+                new_goal = (
+                        self.feat(latent).astype(tf.float32) + new_goal
+                        if self.config.manager_delta else new_goal)
         elif mode == 'eval':
             switch = lambda x, y: (
                     tf.einsum('i,i...->i...', 1 - update.astype(x.dtype), x) +
                     tf.einsum('i,i...->i...', update.astype(x.dtype), y))
             skill = sg(switch(carry['skill'], self.goal_manager.actor(sg(latent)).sample()))
-            new_goal = self.dec({'skill': skill, 'context': self.feat(latent)}).mode()
-            new_goal = (
-                    self.feat(latent).astype(tf.float32) + new_goal
-                    if self.config.manager_delta else new_goal)
+            if self.config.skill_type == 'gc_ac':
+                new_goal = self.dec({'skill': skill, 'context': self.feat(latent)}).mode()
+                new_goal = (
+                        self.feat(latent).astype(tf.float32) + new_goal
+                        if self.config.manager_delta else new_goal)
         goal = sg(switch(carry['goal'], new_goal))
         delta = goal - self.feat(latent).astype(tf.float32)
-        dist = self.worker.actor(sg({**latent, 'goal': goal, 'delta': delta}))
+        diayn_skill = skill[:, :-1] if self.config.expl_skill else skill
+        dist = self.worker.actor.actor(sg({**latent, 'goal': goal, 'delta': delta, 'skill': diayn_skill}))
+        dist = dist.sample()
+        if self.config.expl_skill:
+            expl_dist = self.explorer.actor(latent).sample()
+            update = skill[:, -1]
+            switch = lambda x, y: (
+                    tf.einsum('i,i...->i...', 1 - update.astype(x.dtype), x) +
+                    tf.einsum('i,i...->i...', update.astype(x.dtype), y))
+            dist = switch(dist, expl_dist)
         outs = {'action': dist}
         if 'image' in self.wm.heads['decoder'].shapes:
             outs['log_goal'] = self.wm.heads['decoder']({
@@ -142,7 +160,7 @@ class Hierarchy(tfutils.Module):
         metrics = {}
         if self.config.expl_rew == 'disag':
             metrics.update(self.expl_reward.train(data))
-        if self.config.vae_replay:
+        if self.config.vae_replay and self.config.skill_type != 'DIAYN':
             metrics.update(self.train_vae_replay(data))
         if self.config.explorer:
             traj, mets = self.explorer.train(imagine, start, data)
@@ -258,18 +276,22 @@ class Hierarchy(tfutils.Module):
     def train_worker(self, imagine, start, goal):
         start = start.copy()
         metrics = {}
-        sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)
-        with tf.GradientTape(persistent=True) as tape:
-            worker = lambda s: self.worker.actor(sg({
-                    **s, 'goal': goal, 'delta': goal - self.feat(s).astype(tf.float32),
-            })).sample()
-            traj = imagine(worker, start, self.config.imag_horizon)
-            traj['goal'] = tf.repeat(goal[None], 1 + self.config.imag_horizon, 0)
-            traj['reward_extr'] = self.extr_reward(traj)
-            traj['reward_expl'] = self.expl_reward(traj)
-            traj['reward_goal'] = self.goal_reward(traj)
-            traj['delta'] = traj['goal'] - self.feat(traj).astype(tf.float32)
-        mets = self.worker.update(traj, tape)
+        if self.config.skill_type == 'gc_ac':
+            sg = lambda x: tf.nest.map_structure(tf.stop_gradient, x)
+            with tf.GradientTape(persistent=True) as tape:
+                worker = lambda s: self.worker.actor(sg({
+                        **s, 'goal': goal, 'delta': goal - self.feat(s).astype(tf.float32),
+                })).sample()
+                traj = imagine(worker, start, self.config.imag_horizon)
+                traj['goal'] = tf.repeat(goal[None], 1 + self.config.imag_horizon, 0)
+                traj['reward_extr'] = self.extr_reward(traj)
+                traj['reward_expl'] = self.expl_reward(traj)
+                traj['reward_goal'] = self.goal_reward(traj)
+                traj['delta'] = traj['goal'] - self.feat(traj).astype(tf.float32)
+            mets = self.worker.update(traj, tape)
+        elif self.config.skill_type == 'DIAYN':
+            traj, mets = self.worker.train(start)
+            mets = {}
         metrics.update({f'worker_{k}': v for k, v in mets.items()})
         return traj, metrics
 
