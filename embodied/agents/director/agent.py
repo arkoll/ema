@@ -313,6 +313,39 @@ class WorldModel(tfutils.Module):
                 self.config.imag_discount * cont) / self.config.imag_discount
         return traj
 
+    def imagine_carry_no_goal(self, policy, start, horizon, carry):
+        first_cont = (1.0 - start['is_terminal']).astype(tf.float32)
+        keys = list(self.rssm.initial(1).keys())
+        start = {k: v for k, v in start.items() if k in keys}
+        keys += list(carry.keys()) + ['action']
+        states = [{**start}]
+        outs, carry = policy({**start}, carry)
+        action = outs['action']
+        if hasattr(action, 'sample'):
+            action = action.sample()
+        actions = [action]
+        carries = [carry]
+        for _ in range(horizon):
+            states.append(self.rssm.img_step(states[-1], actions[-1]))
+            outs, carry = policy(states[-1], carry)
+            action = outs['action']
+            if hasattr(action, 'sample'):
+                action = action.sample()
+            actions.append(action)
+            carries.append(carry)
+        transp = lambda x: {k: [x[t][k] for t in range(len(x))] for k in x[0]}
+        traj = {**transp(states), **transp(carries), 'action': actions}
+        traj = {k: tf.stack(v, 0) for k, v in traj.items()}
+        if self.config.pred_cont:
+            cont = self.heads['cont'](traj).mean()[1:]
+        else:
+            cont = tf.ones(traj['action'][:-1].shape[:-1])
+        cont = tf.concat([first_cont[None], cont], 0)
+        traj['cont'] = cont
+        traj['weight'] = tf.math.cumprod(
+                self.config.imag_discount * cont) / self.config.imag_discount
+        return traj
+
     def report(self, data):
         report = {}
         report.update(self.loss(data)[-1])
