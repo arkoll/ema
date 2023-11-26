@@ -9,6 +9,7 @@ from . import agent
 from . import expl
 from . import nets
 from . import tfutils
+from . import dists
 
 
 class Hierarchy(tfutils.Module):
@@ -20,6 +21,13 @@ class Hierarchy(tfutils.Module):
         self.config = config
         # self.extr_reward = lambda traj: self.wm.heads['reward'](traj).mean()[1:]
         self.extr_reward = self.loag_reward
+        if self.config.gc_reward == 'dd':
+            self.dd = dists.DynDist(config,
+                                    out_dim = 1,
+                                    input_type = self.config.dd_inp,
+                                    units = 400,
+                                    normalize_input = self.config.dd_norm_inp)
+
         self.skill_space = embodied.Space(
                 np.int32 if config.goal_encoder.dist == 'onehot' else np.float32,
                 config.skill_shape)
@@ -56,6 +64,7 @@ class Hierarchy(tfutils.Module):
         self.expl_manager = agent.ImagActorCritic({
                 'expl': agent.VFunction(lambda s: s['reward_expl'], mconfig),
         }, config.manager_rews, self.skill_space, mconfig)
+        # self.goal_manager = self.expl_manager
 
         if self.config.expl_rew == 'disag':
             self.expl_reward = expl.Disag(wm, act_space, config)
@@ -141,8 +150,15 @@ class Hierarchy(tfutils.Module):
     
     def loag_reward(self, traj):
         loag = tf.stop_gradient(traj['loag'].astype(tf.float32))
-        feat = self.wm.heads['decoder'](traj)['observation'].mode().astype(tf.float32)
-        return -tf.math.sqrt(tf.square(loag-feat).sum(axis=2))[1:]
+        if self.config.gc_reward == 'euclid':
+            feat = self.wm.heads['decoder'](traj)['observation'].mode().astype(tf.float32)
+            return -tf.math.sqrt(tf.square(loag-feat).sum(axis=2))[1:]
+        elif self.config.gc_reward == 'dd':
+            data = {'observation': loag}
+            goal_embed = loag#self.wm.encoder(data)
+            inp_embed = tf.cast(self.wm.heads['embed'](traj).mode(), goal_embed.dtype)
+            out = -self.dd(tf.concat([inp_embed, goal_embed], axis =-1))
+            return out[1:].astype(tf.float32)
     
     def get_loag(self, data):
         real_goal = data['observation']
@@ -151,6 +167,7 @@ class Hierarchy(tfutils.Module):
         goal_embed = goal_embed.reshape([-1] + list(goal_embed.shape[2:]))
         real_goal = real_goal.reshape([-1] + list(real_goal.shape[2:]))
         ids = tf.random.shuffle(tf.range(tf.shape(goal_embed)[0]))
+        goal_embed = tf.gather(goal_embed, ids)
         loag = tf.gather(real_goal, ids)
         return loag
 
@@ -186,10 +203,11 @@ class Hierarchy(tfutils.Module):
                 goal = self.propose_goal(start, impl)
                 traj, mets = self.train_worker(imagine, start, goal)
                 metrics.update(mets)
-                metrics[f'success_{impl}'] = success(traj['reward_goal'])
+                # metrics[f'success_{impl}'] = success(traj['reward_goal'])
                 if self.config.vae_imag:
                     metrics.update(self.train_vae_imag(traj))
-            traj, mets = self.train_manager(imagine, start)
+            traj, mets = self.train_manager(imagine, start, loag, mode='explore')
+            traj, mets = self.train_manager(imagine, start, loag, mode='eval')
             metrics.update(mets)
             metrics['success_manager'] = success(traj['reward_goal'])
         else:
@@ -211,20 +229,20 @@ class Hierarchy(tfutils.Module):
             wtraj = self.split_traj(traj)
             mtrajexpl = self.abstract_traj(traj)
             
-            policy = functools.partial(self.policy, imag=True, mode='eval')
-            traj = self.wm.imagine_carry(
-                    policy, start, self.config.imag_horizon,
-                    self.initial(len(start['is_first'])), loag)
-            traj['reward_extr'] = self.extr_reward(traj)
-            traj['reward_expl'] = self.expl_reward(traj)
-            traj['reward_goal'] = self.goal_reward(traj)
-            traj['delta'] = traj['goal'] - self.feat(traj).astype(tf.float32)
-            wtraj = self.split_traj(traj)
-            mtrajgoal = self.abstract_traj(traj)
+            # policy = functools.partial(self.policy, imag=True, mode='eval')
+            # traj = self.wm.imagine_carry(
+            #         policy, start, self.config.imag_horizon,
+            #         self.initial(len(start['is_first'])), loag)
+            # traj['reward_extr'] = self.extr_reward(traj)
+            # traj['reward_expl'] = self.expl_reward(traj)
+            # traj['reward_goal'] = self.goal_reward(traj)
+            # traj['delta'] = traj['goal'] - self.feat(traj).astype(tf.float32)
+            # wtraj = self.split_traj(traj)
+            # mtrajgoal = self.abstract_traj(traj)
         mets = self.worker.update(wtraj, tape)
         metrics.update({f'worker_{k}': v for k, v in mets.items()})
-        mets = self.goal_manager.update(mtrajgoal, tape)
-        metrics.update({f'manager_{k}': v for k, v in mets.items()})
+        # mets = self.goal_manager.update(mtrajgoal, tape)
+        # metrics.update({f'manager_{k}': v for k, v in mets.items()})
         mets = self.expl_manager.update(mtrajexpl, tape)
         metrics.update({f'manager_{k}': v for k, v in mets.items()})
         return traj, metrics
@@ -257,19 +275,23 @@ class Hierarchy(tfutils.Module):
         metrics.update({f'manager_{k}': v for k, v in mets.items()})
         return traj, metrics
 
-    def train_manager(self, imagine, start):
+    def train_manager(self, imagine, start, loag, mode):
         start = start.copy()
         with tf.GradientTape(persistent=True) as tape:
-            policy = functools.partial(self.policy, imag=True)
+            policy = functools.partial(self.policy, imag=True, mode=mode)
             traj = self.wm.imagine_carry(
                     policy, start, self.config.imag_horizon,
-                    self.initial(len(start['is_first'])))
+                    self.initial(len(start['is_first'])), loag)
             traj['reward_extr'] = self.extr_reward(traj)
             traj['reward_expl'] = self.expl_reward(traj)
             traj['reward_goal'] = self.goal_reward(traj)
             traj['delta'] = traj['goal'] - self.feat(traj).astype(tf.float32)
             mtraj = self.abstract_traj(traj)
-        metrics = self.manager.update(mtraj, tape)
+
+        if mode == 'explore':
+            metrics = self.expl_manager.update(mtraj, tape)
+        elif mode == 'eval':
+            metrics = self.goal_manager.update(mtraj, tape)
         metrics = {f'manager_{k}': v for k, v in metrics.items()}
         return traj, metrics
 
@@ -308,6 +330,8 @@ class Hierarchy(tfutils.Module):
                 goal = feat[:, self.config.train_skill_duration:]
         else:
             goal = context = feat
+        if self.config.manager_delta:
+            goal = goal[:, :-self.config.env_skill_duration] - goal[:, self.config.env_skill_duration:]
         with tf.GradientTape() as tape:
             enc = self.enc({'goal': goal, 'context': context})
             dec = self.dec({'skill': enc.sample(), 'context': context})
