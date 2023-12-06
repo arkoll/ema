@@ -80,7 +80,10 @@ class DIAYN(tfutils.Module):
             'goal': tf.zeros(
                 (batch_size,) + self.config.goal_shape, tf.float32
             ),
-            'goal_pos': tf.zeros((batch_size, 3), tf.float32)
+            'goal_pos': tf.zeros((batch_size, 3), tf.float32),
+            'skill': tf.zeros(
+                (batch_size,) + self.config.skill_shape, tf.float32
+            ),
         }
     
     def policy(self, latent, carry, mode):
@@ -103,10 +106,23 @@ class DIAYN(tfutils.Module):
             goal = tf.gather(goals, goal)
             goal = sg(switch(carry['goal'], goal, update))
             goal_pos = sg(switch(carry['goal_pos'], goal_pos, update))
-            a_act = self.achiever.actor(sg({**latent, 'goal': goal})).sample()
+            skill = sg(switch(
+                carry['skill'],
+                tf.squeeze(self.prior.sample((carry['skill'].shape[0],))),
+                update
+            ))
+            if self.config.use_goals:
+                a_act = self.achiever.actor(
+                    sg({**latent, 'goal': goal})
+                ).sample()
+            else:
+                a_act = self.worker.actor(
+                    sg({**latent, 'skill': skill})
+                ).sample()
             e_act = self.explorer.actor(sg({**latent})).sample()
             act = switch(e_act, a_act, update_exp)
         elif mode == 'eval':
+            skill = carry['skill']
             goal = carry['goal']
             goal_pos = carry['goal_pos']
             act = self.achiever.actor(sg({**latent, 'goal': goal})).mode()
@@ -117,7 +133,7 @@ class DIAYN(tfutils.Module):
         outs['log_cgoal'] = goal_pos 
         outs['log_update'] = update
         outs['log_update_exp'] = update_exp
-        carry = {'step': carry['step'] + 1, 'goal': goal, 'goal_pos': goal_pos}
+        carry = {'step': carry['step'] + 1, 'goal': goal, 'goal_pos': goal_pos, 'skill': skill}
         return outs, carry
 
     def train(self, imagine, start, data):

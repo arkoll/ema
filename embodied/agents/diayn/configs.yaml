@@ -174,6 +174,7 @@ defaults:
   explore_goals: DIAYN
   eval_goals: DIAYN
   goal_temp: 1
+  use_goals: True
 
 dmlab:
 
@@ -227,14 +228,16 @@ loconav:
   train.log_keys_max: '^log_.*'
 
 diayn:
-  task: loconav_ball_maze_s
-  encoder: {mlp_keys: '(absolute_position)', cnn_keys: 'image'}
-  decoder: {mlp_keys: '(absolute_position)', cnn_keys: 'image'}
+  task: loconav_ant_maze_s
+  encoder: {mlp_keys: '.*(absolute_position|joints|sensors|actuator|effectors|appendages|bodies|height|zaxis).*', cnn_keys: '$^'}
+  decoder: {mlp_keys: '.*(absolute_position|joints|sensors|actuator|effectors|appendages|bodies|height|zaxis).*', cnn_keys: '$^'}
   train.log_keys_max: '^log_cover.*'
   task_behavior: DIAYN
   skill_shape: [20]
   worker_inputs: [deter, stoch, skill]
   goal_decoder: {layers: 4, units: 512, act: elu, norm: layer, dist: mse, outscale: 0.1, inputs: [landmark]}
+  embed_head.shape: 512
+  goal_shape: [512]
 
 debug:
 
@@ -260,5 +263,5 @@ debug:
   .*\.units: 64
   .*\.wd: 0.0
   tf: {platform: gpu, jit: False}
-  embed_head.shape: 1024
-  goal_shape: [1024]
+  embed_head.shape: 512
+  goal_shape: [512]
