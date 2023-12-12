@@ -45,7 +45,6 @@ class Driver:
         acts, self._state = policy(self._obs, self._state, **self._kwargs)
         acts['reset'] = np.zeros(len(self._env), bool)
         if self._obs['is_last'].any():
-            assert self._obs['is_last'].all()
             acts = {
                     k: v * self._expand(1 - self._obs['is_last'], len(v.shape))
                     for k, v in acts.items()}
