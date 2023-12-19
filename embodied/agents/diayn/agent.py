@@ -46,12 +46,6 @@ class Agent(tfagent.TFAgent):
     @tf.function
     def policy(self, obs, state=None, mode='train'):
         self.config.tf.jit and print('Tracing policy function.')
-        gobs = {
-            k.split('_', 1)[1]: v for k, v in obs.items()
-            if k.startswith('GOAL')
-        }
-        gobs['reward'] = obs['reward']
-        obs = {k: v for k, v in obs.items() if not k.startswith('GOAL')}
         if state is None:
             state = self.initial_policy_state(obs)
         obs = self.preprocess(obs)
@@ -62,7 +56,10 @@ class Agent(tfagent.TFAgent):
         )
         noise = self.config.expl_noise
         if mode == 'eval':
-            gobs = self.preprocess(gobs)
+            gobs = self.preprocess(obs)
+            gobs['observation'] = gobs['desired_observation']
+            gobs['achieved_goal'] = gobs['desired_goal']
+            gobs['absolute_position'] = gobs['desired_goal']
             goal = self.wm.encoder(gobs)
             tstate = task_state.copy()
             tstate['goal'] = tf.stop_gradient(goal).astype(tf.float32)

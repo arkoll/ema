@@ -215,8 +215,8 @@ def train_with_viz(
     
     eval_metrics = collections.defaultdict(list)
     def eval_episode(ep):
-        g = ep['GOAL_absolute_position']
-        s = ep['absolute_position']
+        g = ep['desired_goal']
+        s = ep['achieved_goal']
         d = np.linalg.norm(g - s, axis=1)
         eval_metrics['distance'].append(d.min())
         d = d / d[0]

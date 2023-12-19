@@ -40,7 +40,7 @@ defaults:
     eval_fill: 1e4
     pretrain: 1
     log_zeros: False
-    log_keys_video: [image]
+    log_keys_video: [none]
     log_keys_sum: '^$'
     log_keys_mean: '^$'
     log_keys_max: '^$'
@@ -74,6 +74,7 @@ defaults:
 
   # Actor Critic
   actor: {layers: 4, units: 512, act: elu, norm: layer, minstd: 0.03, maxstd: 1.0, outscale: 0.1, unimix: 0.01, inputs: [deter, stoch]}
+  actor_ach: {layers: 4, units: 512, act: elu, norm: layer, minstd: 0.03, maxstd: 1.0, outscale: 0.1, unimix: 0.0, inputs: [deter, stoch, goal]}
   critic: {layers: 4, units: 512, act: elu, norm: layer, dist: symlog, outscale: 0.1, inputs: [deter, stoch]}
   actor_opt: {opt: adam, lr: 1e-4, eps: 1e-6, clip: 100.0, wd: 1e-2, wd_pattern: 'kernel'}
   critic_opt: {opt: adam, lr: 1e-4, eps: 1e-6, clip: 100.0, wd: 1e-2, wd_pattern: 'kernel'}
@@ -93,6 +94,7 @@ defaults:
   slow_target_update: 100
   slow_target_fraction: 1.0
   actent: {impl: mult, scale: 3e-3, target: 0.5, min: 1e-5, max: 1e2, vel: 0.1}
+  actent_ach: {impl: mult, scale: 3e-5, target: 0.5, min: 1e-5, max: 1e2, vel: 0.1}
   actent_norm: True
   actent_perdim: True
   advnorm: {impl: mean_std, decay: 0.99, max: 1e8}
@@ -175,6 +177,7 @@ defaults:
   eval_goals: DIAYN
   goal_temp: 1
   use_goals: True
+  train_goals: buffer
 
 dmlab:
 
@@ -228,9 +231,9 @@ loconav:
   train.log_keys_max: '^log_.*'
 
 diayn:
-  task: loconav_ant_maze_s
-  encoder: {mlp_keys: '.*(absolute_position|joints|sensors|actuator|effectors|appendages|bodies|height|zaxis).*', cnn_keys: '$^'}
-  decoder: {mlp_keys: '.*(absolute_position|joints|sensors|actuator|effectors|appendages|bodies|height|zaxis).*', cnn_keys: '$^'}
+  task: antmaze_dummy
+  encoder: {mlp_keys: '(absolute_position|observation)', cnn_keys: '$^'}
+  decoder: {mlp_keys: '(absolute_position|observation)', cnn_keys: '$^'}
   train.log_keys_max: '^log_cover.*'
   task_behavior: DIAYN
   skill_shape: [20]
@@ -238,9 +241,18 @@ diayn:
   goal_decoder: {layers: 4, units: 512, act: elu, norm: layer, dist: mse, outscale: 0.1, inputs: [landmark]}
   embed_head.shape: 512
   goal_shape: [512]
+  env.length: 500
+  discount: 0.996
+  imag_discount: 0.996
+  replay_chunk: 50
+  rssm: {units: 512, deter: 512, stoch: 16, classes: 16}
+  actor_ach: {unimix: 0.0}
+  actent_ach: {scale: 3e-5, target: 0.5}
+  goal_duration: 100
+  goal_reward: dd
+  train_goals: buffer
 
 debug:
-
   env.length: 100
   env.restart: False
   env.amount: 2

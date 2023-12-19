@@ -39,8 +39,9 @@ class DIAYN(tfutils.Module):
 
         # Goal achiever
         aconfig = config.update({
-            'actor.inputs': self.config.achiever_inputs,
+            'actor': self.config.actor_ach,
             'critic.inputs': self.config.achiever_inputs,
+            'actent': self.config.actent_ach
         })
         self.achiever = agent.ImagActorCritic({
             'goal': agent.VFunction(lambda s: self.goal_reward(s), aconfig),
@@ -80,7 +81,7 @@ class DIAYN(tfutils.Module):
             'goal': tf.zeros(
                 (batch_size,) + self.config.goal_shape, tf.float32
             ),
-            'goal_pos': tf.zeros((batch_size, 3), tf.float32),
+            'goal_pos': tf.zeros((batch_size, 2), tf.float32),
             'skill': tf.zeros(
                 (batch_size,) + self.config.skill_shape, tf.float32
             ),
@@ -213,10 +214,17 @@ class DIAYN(tfutils.Module):
         return goals
 
     def propose_train_goals(self, start):
-        goal = start['embed']
-        ids = tf.random.shuffle(tf.range(tf.shape(goal)[0]))
-        goal = tf.gather(goal, ids)
-        return goal
+        if self.config.train_goals == 'batch':
+            goal = start['embed']
+            ids = tf.random.shuffle(tf.range(tf.shape(goal)[0]))
+            goal = tf.gather(goal, ids)
+        elif self.config.train_goals == 'buffer':
+            self.update_goal_buffer()
+            goals = self.goal_buffer_embed
+            bs = start['embed'].shape[0]
+            goal = tfd.Categorical(probs=self.goal_buffer_prob).sample(bs)
+            goal = tf.gather(goals, goal)
+        return tf.stop_gradient(goal)
     
     def get_future_idxs(self):
         cur_idx_list = []
@@ -346,7 +354,6 @@ class DIAYN(tfutils.Module):
         weights = weights / weights.sum()
         return weights
 
-    
     def goal_reward(self, traj):
         embed = self.wm.heads['embed'](traj).mode()
         goal = tf.stop_gradient(traj['goal'].astype(tf.float32))
