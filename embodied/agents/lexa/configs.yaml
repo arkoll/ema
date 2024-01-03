@@ -1,0 +1,148 @@
+defaults:
+
+  # Trainer
+  logdir: /dev/null
+  seed: 0
+  task: dummy_discrete
+  env: {amount: 4, parallel: process, daemon: False, repeat: 1, size: [64, 64], camera: -1, gray: False, length: 0, discretize: 0, lives: False, sticky: True, episodic: True, restart: True, again: False, termination: False, weaker: 1.0, seed: 0}
+  replay_size: 1e6
+  replay_chunk: 50
+  replay_fixed: {prio_starts: 0.0, prio_ends: 1.0, sync: 0}
+  tf:
+    jit: True
+    platform: gpu
+    device: all
+    precision: 16
+    debug_nans: False
+    logical_gpus: 0
+    dist_dataset: False
+    dist_policy: False
+    tensorfloat: True
+    placement: False
+    growth: True
+  eval_dir: ''
+  filter: '.*' # filter logger output of scalars
+  tbtt: 0
+  train:
+    steps: 1e7
+    expl_until: 0
+    log_every: 1e4
+    eval_every: 3e4
+    eval_eps: 1
+    eval_samples: 8
+    train_every: 5
+    train_steps: 2
+    train_fill: 1e4
+    pretrain: 100
+    log_zeros: False
+    log_keys_sum: '^$'
+    log_keys_mean: '^$'
+    log_keys_max: '^$'
+    log_timings: True
+    sync_every: 180
+
+  # Agent
+  transform_rewards: off
+  expl_noise: 0.0
+  eval_noise: 0.0
+  data_loader: tfdata
+  batch_size: 45
+  achiever_behavior: GoalCond
+  explorer_behavior: Explore
+
+  # Achiever
+  actor_ach: {layers: 4, units: 400, act: elu, norm: none, minstd: 0.03, maxstd: 1.0, outscale: 0.1, unimix: 0.0, inputs: [deter, stoch, goal]}
+  actent_ach: {impl: mult, scale: 1e-5, target: 0.5, min: 1e-5, max: 1e2, vel: 0.1}
+  dyndist: {layers: 4, units: 400, act: elu, norm: none, dist: mse, inputs: [embed, goal]}
+  dyndist_opt: {opt: adam, lr: 8e-5, eps: 1e-5, clip: 100.0, wd: 1e-6, wd_pattern: 'kernel'}
+  dd_batch_size: 512
+  dd_negatives: 0.1
+  goal_shape: [400] # should be the embed size
+  train_goals: env # batch
+  goal_reward: dd # l1_dif
+
+  # Explorer
+  expl_rewards: {disag: 1.0}
+  expl_discount: 0.99
+  expl_retnorm: {impl: std, decay: 0.999, max: 1e8}
+  expl_scorenorm: {impl: off, decay: 0.999, max: 1e8}
+  disag_head: {layers: 4, units: 400, act: elu, norm: none, dist: mse, inputs: [deter, stoch, action]}
+  expl_opt: {opt: adam, lr: 3e-4, eps: 1e-5, clip: 100.0, wd: 1e-6}
+  disag_target: [stoch]
+  disag_models: 8
+  
+  # World Model
+  grad_heads: [decoder, cont]
+  rssm: {units: 200, deter: 200, stoch: 50, classes: 0, act: elu, norm: none, initial: learned2, unroll: True}
+  encoder: {mlp_keys: '.*', cnn_keys: '.*', act: elu, norm: layer, mlp_layers: 3, mlp_units: 400, cnn: simple, cnn_depth: 64, cnn_kernels: [4, 4, 4, 4]}
+  decoder: {mlp_keys: '.*', cnn_keys: '.*', act: elu, norm: layer, mlp_layers: 3, mlp_units: 400, cnn: simple, cnn_depth: 64, cnn_kernels: [5, 5, 6, 6], image_dist: mse, inputs: [deter, stoch]}
+  cont_head: {layers: 3, units: 400, act: elu, norm: none, dist: binary, outscale: 0.1, inputs: [deter, stoch]}
+  embed_head: {shape: 400, layers: 3, units: 400, act: elu, norm: none, dist: mse, outscale: 0.1, inputs: [deter, stoch]} # manual check for convinience
+  loss_scales: {kl: 1.0, image: 1.0, cont: 1.0}
+  model_opt: {opt: adam, lr: 3e-4, eps: 1e-5, clip: 100.0, wd: 1e-6, wd_pattern: 'kernel'}
+  wmkl: {impl: mult, scale: 0.1, target: 3.5, min: 1e-5, max: 1.0, vel: 0.1}
+  wmkl_balance: 0.8
+
+  # Actor Critic
+  actor: {layers: 4, units: 400, act: elu, norm: none, minstd: 0.03, maxstd: 1.0, outscale: 0.1, unimix: 0.01, inputs: [deter, stoch]}
+  critic: {layers: 4, units: 400, act: elu, norm: none, dist: symlog, outscale: 0.1, inputs: [deter, stoch]}
+  actor_opt: {opt: adam, lr: 8e-5, eps: 1e-5, clip: 100.0, wd: 1e-6, wd_pattern: 'kernel'}
+  critic_opt: {opt: adam, lr: 8e-5, eps: 1e-5, clip: 100.0, wd: 1e-6, wd_pattern: 'kernel'}
+  actor_dist_disc: onehot
+  actor_dist_cont: normal
+  episodic: True
+  discount: 0.99
+  imag_discount: 0.99
+  imag_horizon: 16
+  imag_unroll: True
+  critic_return: gve
+  actor_return: gve
+  return_lambda: 0.95
+  actor_grad_disc: reinforce
+  actor_grad_cont: backprop
+  slow_target: True
+  slow_target_update: 100
+  slow_target_fraction: 1.0
+  actent: {impl: mult, scale: 3e-3, target: 0.5, min: 1e-5, max: 1e2, vel: 0.1}
+  actent_norm: True
+  actent_perdim: True
+  advnorm: {impl: mean_std, decay: 0.99, max: 1e8}
+  retnorm: {impl: std, decay: 0.999, max: 1e2}
+  scorenorm: {impl: off, decay: 0.99, max: 1e8}
+  adv_slow_critic: True
+  pengs_qlambda: False
+  critic_type: vfunction
+  rewnorm_discount: False
+
+lexa:
+  task: maze_ant
+  encoder: {mlp_keys: 'observation', cnn_keys: '$^'}
+  decoder: {mlp_keys: 'observation', cnn_keys: '$^'}
+  env.length: 500
+  discount: 0.996
+  imag_discount: 0.996
+  goal_reward: l1_dif # use for debug, as dd does not work properly
+
+debug:
+  env.length: 100
+  env.restart: False
+  env.amount: 2
+  env.parallel: none
+  train:
+    eval_every: 300
+    log_every: 300
+    train_fill: 100
+    train_steps: 1
+    train_every: 30
+    log_timings: False
+    pretrain: 1
+  batch_size: 8
+  replay_size: 500
+  replay_chunk: 12
+  encoder.cnn_depth: 16
+  decoder.cnn_depth: 16
+  rssm: {units: 64, stoch: 8, classes: 8}
+  .*\.layers: 2
+  .*\.units: 64
+  .*\.wd: 0.0
+  tf: {platform: gpu, jit: False}

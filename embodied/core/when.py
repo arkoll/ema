@@ -22,6 +22,29 @@ class Every:
         return False
 
 
+class EveryRepeat:
+
+    def __init__(self, every):
+        self._every = every
+        self._last = None
+
+    def __call__(self, step):
+        step = int(step)
+        if self._every < 0:
+            return True
+        if self._every == 0:
+            return False
+        if self._last is None:
+            self._last = step
+            return True
+        if step >= self._last + self._every:
+            self._last = step
+            return True
+        if step == self._last:
+            return True
+        return False
+
+
 class Once:
 
     def __init__(self):

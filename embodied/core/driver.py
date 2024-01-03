@@ -20,6 +20,7 @@ class Driver:
         self._kwargs = kwargs
         self._on_steps = []
         self._on_episodes = []
+        self._on_observations = []
         self.reset()
 
     def reset(self):
@@ -35,6 +36,9 @@ class Driver:
 
     def on_episode(self, callback):
         self._on_episodes.append(callback)
+
+    def on_observation(self, callback):
+        self._on_observations.append(callback)
 
     def __call__(self, policy, steps=0, episodes=0):
         step, episode = 0, 0
@@ -54,6 +58,8 @@ class Driver:
         self._obs = self._env.step(acts)
         assert all(len(x) == len(self._env) for x in self._obs.values()), self._obs
         self._obs = {k: convert(v) for k, v in self._obs.items()}
+        for fn in self._on_observations:
+            self._obs = fn(self._obs)
         trns = {**self._obs, **acts}
         if self._obs['is_first'].any():
             for i, first in enumerate(self._obs['is_first']):

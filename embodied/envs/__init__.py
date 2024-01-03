@@ -32,9 +32,9 @@ def load_single_env(
     elif suite == 'pointmaze':
         from .point_maze.point_maze import PointMaze2D
         env = PointMaze2D(length=length)
-    elif suite == 'antmaze':
-        from . import antmaze
-        env = antmaze.AntMaze(task, mode, length=length)
+    elif suite == 'maze':
+        from . import mazes
+        env = mazes.Maze(task, mode)
     elif suite == 'gym':
         from . import gym
         env = gym.Gym(task)
