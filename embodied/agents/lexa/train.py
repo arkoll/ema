@@ -32,7 +32,9 @@ def main(argv=None):
     config = embodied.Flags(config).parse(other)
 
     config = config.update(logdir=str(embodied.Path(config.logdir)))
-    args = embodied.Config(logdir=config.logdir, **config.train)
+    args = embodied.Config(
+        logdir=config.logdir, length=config.env.length, **config.train
+    )
     args = args.update(expl_until=args.expl_until // config.env.repeat)
     print(config)
 

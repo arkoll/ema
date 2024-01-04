@@ -263,5 +263,7 @@ class GoalCond(tfutils.Module):
         return reward
 
     def report(self, data):
-        # TODO: add eval on episodes to show dd
-        return {}
+        embed = self.wm.encoder(data)
+        goal = self.wm.encoder({'observation': data['goal']})
+        dd = self.dyndist({'embed': embed, 'goal': goal}).mode()
+        return {'dd': dd }

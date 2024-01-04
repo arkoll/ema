@@ -4,6 +4,7 @@ import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import tensorflow as tf
 
 import embodied
 
@@ -15,6 +16,33 @@ def plot_episode(ep):
     ax.set_aspect('equal')
     ax.scatter(pos[:, 0], pos[:, 1], c=np.arange(len(pos)), marker='.')
     ax.scatter(goal[:, 0], goal[:, 1], c='g', marker='*', s=50)
+    fig.canvas.draw()
+    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
+    img = np.transpose(img, [1, 2, 0])
+    img = img.astype(float) / 255.
+    plt.close(fig)
+    return {'trajectory': img}
+
+
+def plot_episodes(ep):
+    trunc = ep['is_last']
+    dd = ep['ach_dd'] 
+    poses = ep['obs_pos']
+    goals = ep['goal_pos']
+    fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=500)
+    ax[0].set_aspect('equal')
+    ax[1].set_aspect('equal')
+    cmap = mpl.colormaps['viridis']
+    for i, pos in enumerate(poses):
+        fin = np.argwhere(trunc[i])[0, 0] + 1
+        ax[0].scatter(pos[:fin, 0], pos[:fin, 1], c=np.arange(fin), marker='.')
+        col = cmap(dd[i, :fin])
+        ax[1].scatter(pos[:fin, 0], pos[:fin, 1], c=col, marker='.')
+    for i, goal in enumerate(goals):
+        fin = np.argwhere(trunc[i])[0, 0] + 1
+        ax[0].scatter(goal[:fin, 0], goal[:fin, 1], c='g', marker='*', s=50)
+        ax[1].scatter(goal[:fin, 0], goal[:fin, 1], c='g', marker='*', s=50)
     fig.canvas.draw()
     img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
     img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
@@ -97,6 +125,7 @@ def train_eval(
         logger.write()
         
     eval_metrics = collections.defaultdict(list)
+    eval_episodes = collections.defaultdict(list)
     def per_eval_sample(ep):
         length = len(ep['reward']) - 1
         score = float(ep['reward'].astype(np.float64).sum())
@@ -109,6 +138,13 @@ def train_eval(
             eval_metrics[k].append(v)
         for k, v in plot_episode(ep).items():
             eval_metrics[f'plot_{k}'].append(v)
+
+        for k, v in ep.items():
+            add_zero = 1 + args.length - v.shape[0]
+            shape = (add_zero,) + v.shape[1:]
+            eval_episodes[k].append(
+                np.concatenate([v, np.zeros(shape, dtype=v.dtype)])
+            )
 
     random_agent = embodied.RandomAgent(env.act_space)
     eval_driver = embodied.Driver(eval_env)
@@ -146,7 +182,6 @@ def train_eval(
                         'train/' + name, np.nanmean(values, dtype=np.float64)
                     )
                     metrics[name].clear()
-            logger.add(agent.report(batch[0]), prefix='report')
             logger.add(timer.stats(), prefix='timer')
             logger.write(fps=True)
     driver.on_step(train_step)
@@ -197,6 +232,12 @@ def train_eval(
                     logger.image(f'eval_metrics/{i}_' + k, im)
                 continue
             logger.scalar('eval_metrics/mean_' + k, np.mean(v))
-            logger.scalar('eval_metrics/std_' + k, np.std(v))
+            logger.scalar('eval_metrics/std_' + k, np.std(v)) 
         eval_metrics.clear()
-        #TODO: add agent metrics on eval episodes
+
+        eval_batch = {k: tf.tensor(v) for k, v in eval_episodes.items()}
+        eval_episodes.update(agent.report(eval_batch))
+        logger.add(
+            plot_episodes(eval_episodes), prefix='eval_metrics'
+        )
+        eval_episodes.clear()

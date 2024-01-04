@@ -129,7 +129,7 @@ class Agent(tfagent.TFAgent):
         self.config.tf.jit and print('Tracing report function.')
         data = self.preprocess(data)
         report = {}
-        report.update(self.wm.report(data))
+        # report.update(self.wm.report(data))
         mets = self.achiever.report(data)
         report.update({f'ach_{k}': v for k, v in mets.items()})
         mets = self.explorer.report(data)
