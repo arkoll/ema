@@ -42,7 +42,7 @@ ENV XLA_PYTHON_CLIENT_MEM_FRACTION 0.8
 
 # Embodied
 RUN pip3 install --no-cache-dir numpy cloudpickle ruamel.yaml rich wandb
-RUN pip3 install --no-cache-dir moviepy imageio matplotlib
+RUN pip3 install --no-cache-dir moviepy imageio matplotlib gymnasium-robotics
 RUN pip3 install --upgrade requests
 RUN apt-get install -y tmux
 ENV WANDB_DIR /logdir
