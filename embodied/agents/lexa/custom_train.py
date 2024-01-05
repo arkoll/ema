@@ -139,6 +139,9 @@ def train_eval(
         for k, v in plot_episode(ep).items():
             eval_metrics[f'plot_{k}'].append(v)
 
+        if len(eval_episodes.keys()) > 0:
+            if len(eval_episodes['is_first']) == args.eval_samples:
+                return
         for k, v in ep.items():
             add_zero = 1 + args.length - v.shape[0]
             shape = (add_zero,) + v.shape[1:]
@@ -225,6 +228,7 @@ def train_eval(
         driver(policy, steps=args.eval_every)
         checkpoint.save()
 
+        eval_driver.reset()
         eval_driver(eval_policy, episodes=args.eval_samples)
         for k, v in eval_metrics.items():
             if k.startswith('plot'):
