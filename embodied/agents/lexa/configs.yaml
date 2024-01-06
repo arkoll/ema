@@ -40,6 +40,7 @@ defaults:
     log_keys_max: '^$'
     log_timings: True
     sync_every: 180
+    alpha: 0.9999
 
   # Agent
   transform_rewards: off
@@ -114,14 +115,30 @@ defaults:
   critic_type: vfunction
   rewnorm_discount: False
 
-lexa:
-  task: maze_point_s
+lexa_ant:
+  task: maze_ant_s
   encoder: {mlp_keys: 'observation', cnn_keys: '$^'}
   decoder: {mlp_keys: 'observation', cnn_keys: '$^'}
   env.length: 500
   discount: 0.996
   imag_discount: 0.996
   goal_reward: l1_dif # use for debug, as dd does not work properly
+
+lexa_point:
+  task: maze_point_s
+  encoder: {mlp_keys: 'observation', cnn_keys: '$^'}
+  decoder: {mlp_keys: 'observation', cnn_keys: '$^'}
+  env.length: 200
+  discount: 0.996
+  imag_discount: 0.996
+  goal_reward: l1_dif
+  train:
+    steps: 5e5
+    log_every: 5e3
+    eval_every: 1e4
+    train_every: 4
+    train_steps: 1
+    train_fill: 5e3   
 
 debug:
   env.length: 100

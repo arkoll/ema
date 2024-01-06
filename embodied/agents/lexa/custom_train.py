@@ -68,6 +68,37 @@ def distance_metrics(ep):
     return metrics
 
 
+def visit_metrics(visits):
+    fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
+    cmap = mpl.colormaps['viridis']
+    max_value = np.max(visits['data'])
+    min_value = np.min(visits['data'][:visits['pointer']])
+    ax.set_aspect('equal')
+    x_lim = [-0.1, 0.1]
+    y_lim = [-0.1, 0.1]
+    for k, v in visits['keys'].items():
+        x, y = (float(i) for i in k.split(' '))
+        col = cmap((visits['data'][v] - min_value) / (max_value - min_value))
+        rectangle = plt.Rectangle(
+            (x - 0.05, y - 0.05), 0.1, 0.1,
+            color=col, ls='None'
+        )
+        if x_lim[0] >= x: x_lim[0] = x - 0.1
+        if x_lim[1] <= x: x_lim[1] = x + 0.1
+        if y_lim[0] >= y: y_lim[0] = y - 0.1
+        if y_lim[1] <= y: y_lim[1] = y + 0.1
+        ax.add_patch(rectangle)
+    ax.set_xlim(x_lim)
+    ax.set_ylim(y_lim)
+    fig.canvas.draw()
+    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))  
+    img = np.transpose(img, [1, 2, 0])
+    img = img.astype(float) / 255.
+    plt.close(fig)
+    return {'visits': img, 'coverage': visits['pointer']}
+
+
 def train_eval(
         agent, env, eval_env, train_replay, logger, args
     ):
@@ -149,6 +180,27 @@ def train_eval(
                 np.concatenate([v, np.zeros(shape, dtype=v.dtype)])
             )
 
+    visit = dict()
+    visit['keys'] = dict()
+    visit['data'] = np.zeros(args.length)
+    visit['pointer'] = 0
+    def collect_poses(ep):
+        for pos in ep['obs_pos']:
+            x = np.format_float_positional(pos[0], precision=1)
+            y = np.format_float_positional(pos[1], precision=1)
+            xy = x + ' ' + y
+            k = visit['keys'].get(xy, 0)
+            if k == 0:
+                visit['keys'][xy] = visit['pointer']
+                k = visit['pointer']
+                visit['pointer'] += 1
+            visit['data'] *= args.alpha
+            if k == len(visit['data']):
+                visit['data'] = np.concatenate(
+                    [visit['data'], np.zeros(args.length)]
+                )
+            visit['data'][k] += 1
+
     random_agent = embodied.RandomAgent(env.act_space)
     eval_driver = embodied.Driver(eval_env)
     eval_driver.on_episode(lambda ep, work: per_episode(ep, work, mode='eval'))
@@ -156,6 +208,7 @@ def train_eval(
 
     driver = embodied.Driver(env)
     driver.on_episode(lambda ep, worker: per_episode(ep, worker, mode='train'))
+    driver.on_episode(lambda ep, worker: collect_poses(ep))
     driver.on_step(lambda tran, _: step.increment())
     driver.on_step(train_replay.add)
     fill = max(0, args.train_fill - len(train_replay))
@@ -227,6 +280,7 @@ def train_eval(
         logger.write()
         driver(policy, steps=args.eval_every)
         checkpoint.save()
+        logger.add(visit_metrics(visit), prefix='eval_metrics')
 
         eval_driver.reset()
         eval_driver(eval_policy, episodes=args.eval_samples)
