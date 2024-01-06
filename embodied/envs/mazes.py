@@ -13,6 +13,26 @@ from gymnasium_robotics.envs.maze.ant_maze_v4 import AntMazeEnv
 
 import embodied
 
+A = 'r'
+G = 'g'
+MAPS = {
+    's': [
+        [0, 0, 1, 1, 1],
+        [0, 0, 1, G, 1],
+        [1, 1, 1, 0, 1],
+        [1, A, 0, 0, 1],
+        [1, 1, 1, 1, 1],
+    ],
+    'xl': [
+        [1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 0, 1, 1, 0, 0, 0, 0, 1],
+        [1, 0, 1, 1, 0, 1, 1, 0, 1],
+        [1, 0, 0, 0, 0, 1, G, 0, 1],
+        [1, 0, 1, 1, 0, 1, 1, 1, 1],
+        [1, A, 0, 0, 0, 0, 0, 0, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1],
+    ]
+}
 
 class CustomPointMaze(PointMazeEnv):
 
@@ -21,20 +41,13 @@ class CustomPointMaze(PointMazeEnv):
         reward_type: str = "sparse",
         continuing_task: bool = True,
         reset_target: bool = False,
+        map_name: str = 's',
         **kwargs,
     ):
         point_xml_file_path = path.join(
             path.dirname(path.realpath(__file__)), "assets/point.xml"
         )
-        a = 'r'
-        g = 'g'
-        maze_map = [
-            [0, 0, 1, 1, 1],
-            [0, 0, 1, g, 1],
-            [1, 1, 1, 0, 1],
-            [1, a, 0, 0, 1],
-            [1, 1, 1, 1, 1],
-        ]
+        maze_map = MAPS[map_name]
 
         super(PointMazeEnv, self).__init__(
             agent_xml_path=point_xml_file_path,
@@ -77,6 +90,7 @@ class CustomPointMaze(PointMazeEnv):
             reward_type,
             continuing_task,
             reset_target,
+            map_name,
             **kwargs,
         )
 
@@ -106,20 +120,13 @@ class CustomAntMaze(AntMazeEnv):
         reward_type: str = "sparse",
         continuing_task: bool = True,
         reset_target: bool = False,
+        map_name: str = 's',
         **kwargs,
     ):
         ant_xml_file_path = path.join(
             path.dirname(path.realpath(__file__)), "assets/ant.xml"
         )
-        a = 'r'
-        g = 'g'
-        maze_map = [
-            [0, 0, 1, 1, 1],
-            [0, 0, 1, g, 1],
-            [1, 1, 1, 0, 1],
-            [1, a, 0, 0, 1],
-            [1, 1, 1, 1, 1],
-        ]
+        maze_map = MAPS[map_name]
 
         super(AntMazeEnv, self).__init__(
             agent_xml_path=ant_xml_file_path,
@@ -159,6 +166,7 @@ class CustomAntMaze(AntMazeEnv):
             reward_type,
             continuing_task,
             reset_target,
+            map_name,
             **kwargs,
         )
 
@@ -194,14 +202,16 @@ class CustomAntMaze(AntMazeEnv):
 class Maze(embodied.Env):
     
     def __init__(self, task, mode, length=500):
-
-        if task == 'point':
+        suite, map_name = task.split('_')
+        if suite == 'point':
             self._env = CustomPointMaze(
-                continuing_task=mode=='train', reset_target=mode=='train'
+                continuing_task=mode=='train', reset_target=mode=='train',
+                map_name = map_name
             )
-        elif task == 'ant':
+        elif suite == 'ant':
             self._env = CustomAntMaze(
-                continuing_task=mode=='train', reset_target=mode=='train'
+                continuing_task=mode=='train', reset_target=mode=='train',
+                map_name = map_name
             )
         else:
             raise NotImplementedError

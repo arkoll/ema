@@ -115,7 +115,7 @@ defaults:
   rewnorm_discount: False
 
 lexa:
-  task: maze_ant
+  task: maze_point_s
   encoder: {mlp_keys: 'observation', cnn_keys: '$^'}
   decoder: {mlp_keys: 'observation', cnn_keys: '$^'}
   env.length: 500
