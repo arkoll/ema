@@ -201,16 +201,25 @@ def train_eval(
                 )
             visit['data'][k] += 1
 
+    def check_obs(obs):
+        dist = np.linalg.norm(obs['obs_pos'] - obs['goal_pos'], axis=1)
+        success = dist < args.goal_threshold
+        obs['reward'] = success.astype(obs['reward'].dtype)
+        obs['is_last'] = success | obs['is_last']
+        return obs
+
     random_agent = embodied.RandomAgent(env.act_space)
     eval_driver = embodied.Driver(eval_env)
     eval_driver.on_episode(lambda ep, work: per_episode(ep, work, mode='eval'))
     eval_driver.on_episode(lambda ep, work: per_eval_sample(ep))
+    eval_driver.on_observation(check_obs)
 
     driver = embodied.Driver(env)
     driver.on_episode(lambda ep, worker: per_episode(ep, worker, mode='train'))
     driver.on_episode(lambda ep, worker: collect_poses(ep))
     driver.on_step(lambda tran, _: step.increment())
     driver.on_step(train_replay.add)
+
     fill = max(0, args.train_fill - len(train_replay))
     if fill:
         print(f'Fill train dataset ({fill} steps).')
@@ -266,6 +275,7 @@ def train_eval(
         changed['goal_pos'] = current_goals[1].copy()
         return changed
     driver.on_observation(change_goal)
+    driver.on_observation(check_obs)
 
     checkpoint = embodied.Checkpoint(logdir / 'checkpoint.pkl')
     checkpoint.step = step

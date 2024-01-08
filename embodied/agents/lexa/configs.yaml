@@ -41,6 +41,7 @@ defaults:
     log_timings: True
     sync_every: 180
     alpha: 0.9999
+    goal_threshold: 1.0
 
   # Agent
   transform_rewards: off
@@ -139,6 +140,7 @@ lexa_point:
     train_every: 4
     train_steps: 1
     train_fill: 5e3   
+    goal_threshold: 0.5
 
 debug:
   env.length: 100

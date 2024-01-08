@@ -131,7 +131,7 @@ class CustomAntMaze(AntMazeEnv):
         super(AntMazeEnv, self).__init__(
             agent_xml_path=ant_xml_file_path,
             maze_map=maze_map,
-            maze_size_scaling=4,
+            maze_size_scaling=2,
             maze_height=4,
             reward_type=reward_type,
             continuing_task=continuing_task,
@@ -205,13 +205,11 @@ class Maze(embodied.Env):
         suite, map_name = task.split('_')
         if suite == 'point':
             self._env = CustomPointMaze(
-                continuing_task=mode=='train', reset_target=mode=='train',
-                map_name = map_name
+                continuing_task=True, reset_target=True, map_name = map_name
             )
         elif suite == 'ant':
             self._env = CustomAntMaze(
-                continuing_task=mode=='train', reset_target=mode=='train',
-                map_name = map_name
+                continuing_task=True, reset_target=True, map_name = map_name
             )
         else:
             raise NotImplementedError
@@ -240,15 +238,14 @@ class Maze(embodied.Env):
     def step(self, action):  
         if action['reset'] or self._done:
             self._done = False
-            obs, info = self._env.reset()
-            return self._obs(obs, 0.0, info, is_first=True)
-        obs, rew, term, trunc, info = self._env.step(action['action'])
+            obs, _ = self._env.reset()
+            return self._obs(obs, 0.0, is_first=True)
+        obs, _, term, trunc, _ = self._env.step(action['action'])
         self._done = term or trunc
-        return self._obs(obs, rew, info, is_last=self._done, is_terminal=term)
+        return self._obs(obs, 0.0, is_last=self._done, is_terminal=term)
     
     def _obs(
-        self, obs, reward, info, is_first=False, is_last=False,
-        is_terminal=False
+        self, obs, reward, is_first=False, is_last=False, is_terminal=False
     ):
         new_obs = self._env.convert_observation(obs)
         return dict(
