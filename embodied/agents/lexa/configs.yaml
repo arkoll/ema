@@ -42,6 +42,8 @@ defaults:
     sync_every: 180
     alpha: 0.9999
     goal_threshold: 1.0
+    goal_termination: False
+    goex: False
 
   # Agent
   transform_rewards: off

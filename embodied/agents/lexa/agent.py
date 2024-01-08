@@ -33,9 +33,8 @@ class Agent(tfagent.TFAgent):
 
         self.initial_policy_state = tf.function(lambda obs: (
             self.wm.rssm.initial(len(obs['is_first'])),
-            self.achiever.initial(len(obs['is_first']) // 2),
-            self.explorer.initial(len(obs['is_first']) // 2),
             self.achiever.initial(len(obs['is_first'])),
+            self.explorer.initial(len(obs['is_first'])),
             tf.zeros((len(obs['is_first']),) + self.act_space.shape)
         ))
         self.initial_train_state = tf.function(lambda obs: (
@@ -48,21 +47,13 @@ class Agent(tfagent.TFAgent):
         if state is None:
             state = self.initial_policy_state(obs)
         obs = self.preprocess(obs)
-        latent, ach_state, expl_state, eval_state, action = state
+        latent, ach_state, expl_state, action = state
         embed = self.wm.encoder(obs)
         latent, _ = self.wm.rssm.obs_step(
             latent, action, embed, obs['is_first']
         )
         # TODO: How implemet goal-explore changes?
         if mode == 'train':
-            batch_size = len(obs['is_first']) // 2
-            goal_lat = {
-                k: tf.gather(v, tf.range(batch_size)) for k, v in latent.items()
-            }
-            expl_lat = {
-                k: tf.gather(v, tf.range(batch_size, 2 * batch_size))
-                for k, v in latent.items()
-            }
             ach_state = tf.cond(
                 tf.math.reduce_any(obs['is_first'].astype(tf.bool)),
                 lambda: self.achiever.get_goal(
@@ -70,26 +61,30 @@ class Agent(tfagent.TFAgent):
                 ),
                 lambda: ach_state
             )
-            a_outs, ach_state = self.achiever.policy(
-                goal_lat, ach_state, mode
-            )
-            e_outs, expl_state = self.explorer.policy(expl_lat, expl_state)
-            act = tf.concat(
-                [a_outs.pop('action'), e_outs.pop('action')], axis=0
-            ) 
+            a_outs, ach_state = self.achiever.policy(latent, ach_state, mode)
+            e_outs, expl_state = self.explorer.policy(latent, expl_state)
+            ach_act = a_outs.pop('action')
+            exp_act = e_outs.pop('action') 
             outs = dict(a_outs, **e_outs)
+
+            expl = obs['explore']
+            switch = lambda x, y: (
+                tf.einsum('i,i...->i...', 1 - expl.astype(x.dtype), x) +
+                tf.einsum('i,i...->i...', expl.astype(x.dtype), y)
+            )
+            act = switch(ach_act, exp_act)
             outs['action'] = act
             noise = self.config.expl_noise
         elif mode == 'eval':
-            eval_state = tf.cond(
+            ach_state = tf.cond(
                 tf.math.reduce_any(obs['is_first'].astype(tf.bool)),
-                lambda: self.achiever.get_eval_goal(
-                    obs['is_first'], obs['goal'], eval_state
+                lambda: self.achiever.get_goal(
+                    obs['is_first'], obs['goal'], ach_state
                 ),
-                lambda: eval_state
+                lambda: ach_state
             )
-            outs, eval_state = self.achiever.policy(
-                latent, eval_state, mode
+            outs, ach_state = self.achiever.policy(
+                latent, ach_state, mode
             )
             noise = self.config.eval_noise
         outs = {
@@ -97,7 +92,7 @@ class Agent(tfagent.TFAgent):
                 outs['action'], noise, self.act_space
             )
         }
-        state = (latent, ach_state, expl_state, eval_state, outs['action'])
+        state = (latent, ach_state, expl_state, outs['action'])
         return outs, state
 
     @tf.function

@@ -222,6 +222,7 @@ class Maze(embodied.Env):
             'is_first': embodied.Space(bool),
             'is_last': embodied.Space(bool),
             'is_terminal': embodied.Space(bool),
+            'explore': embodied.Space(bool),
             **{
                 k: self._convert(v)
                 for k, v in self._env.convert_obs_space().items()
@@ -253,6 +254,7 @@ class Maze(embodied.Env):
             is_first=is_first,
             is_last=is_last,
             is_terminal=is_terminal,
+            explore=False,
             **new_obs
         )
     

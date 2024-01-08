@@ -12,9 +12,12 @@ import embodied
 def plot_episode(ep):
     pos = ep['obs_pos']
     goal = ep['goal_pos']
+    mask = ep['explore']
     fig, ax = plt.subplots(figsize=(5, 5), dpi=500)
+    col = mpl.colormaps['viridis'](np.linspace(0, 1, len(pos)))
     ax.set_aspect('equal')
-    ax.scatter(pos[:, 0], pos[:, 1], c=np.arange(len(pos)), marker='.')
+    ax.scatter(pos[~mask, 0], pos[~mask, 1], c=col[~mask], marker='.')
+    ax.scatter(pos[mask, 0], pos[mask, 1], c=col[mask], marker='+')
     ax.scatter(goal[:, 0], goal[:, 1], c='g', marker='*', s=50)
     fig.canvas.draw()
     img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
@@ -30,15 +33,21 @@ def plot_episodes(ep):
     dd = ep['ach_dd'] 
     poses = ep['obs_pos']
     goals = ep['goal_pos']
+    expl_flag = ep['explore']
     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=500)
     ax[0].set_aspect('equal')
     ax[1].set_aspect('equal')
     cmap = mpl.colormaps['viridis']
-    for i, pos in enumerate(poses):
+    for i, r_pos in enumerate(poses):
         fin = np.argwhere(trunc[i])[0, 0] + 1
-        ax[0].scatter(pos[:fin, 0], pos[:fin, 1], c=np.arange(fin), marker='.')
+        pos = r_pos[:fin]
+        mask = expl_flag[i][:fin]
+        col = cmap(np.linspace(0, 1, fin))
+        ax[0].scatter(pos[~mask, 0], pos[~mask, 1], c=col[~mask], marker='.')
+        ax[0].scatter(pos[mask, 0], pos[mask, 1], c=col[mask], marker='+')
         col = cmap(dd[i, :fin])
-        ax[1].scatter(pos[:fin, 0], pos[:fin, 1], c=col, marker='.')
+        ax[1].scatter(pos[~mask, 0], pos[~mask, 1], c=col[~mask], marker='.')
+        ax[1].scatter(pos[mask, 0], pos[mask, 1], c=col[mask], marker='+')
     for i, goal in enumerate(goals):
         fin = np.argwhere(trunc[i])[0, 0] + 1
         ax[0].scatter(goal[:fin, 0], goal[:fin, 1], c='g', marker='*', s=50)
@@ -201,7 +210,7 @@ def train_eval(
                 )
             visit['data'][k] += 1
 
-    def check_obs(obs):
+    def eval_obs(obs):
         dist = np.linalg.norm(obs['obs_pos'] - obs['goal_pos'], axis=1)
         success = dist < args.goal_threshold
         obs['reward'] = success.astype(obs['reward'].dtype)
@@ -212,7 +221,7 @@ def train_eval(
     eval_driver = embodied.Driver(eval_env)
     eval_driver.on_episode(lambda ep, work: per_episode(ep, work, mode='eval'))
     eval_driver.on_episode(lambda ep, work: per_eval_sample(ep))
-    eval_driver.on_observation(check_obs)
+    eval_driver.on_observation(eval_obs)
 
     driver = embodied.Driver(env)
     driver.on_episode(lambda ep, worker: per_episode(ep, worker, mode='train'))
@@ -275,7 +284,24 @@ def train_eval(
         changed['goal_pos'] = current_goals[1].copy()
         return changed
     driver.on_observation(change_goal)
-    driver.on_observation(check_obs)
+
+    current_explore_status = [np.zeros(len(env), dtype=bool)]
+    def train_obs(obs):
+        dist = np.linalg.norm(obs['obs_pos'] - obs['goal_pos'], axis=1)
+        success = dist < args.goal_threshold
+        if args.goex:
+            current_explore_status[0] |= success
+            current_explore_status[0] &= np.logical_not(obs['is_first'])
+        else:
+            ach_envs = len(env) // 2
+            current_explore_status[0][:ach_envs] &= False
+            current_explore_status[0][ach_envs:] |= True
+        obs['explore'] = current_explore_status[0].copy()
+        obs['reward'] = success.astype(obs['reward'].dtype)
+        if args.goal_termination:
+            obs['is_last'] = success | obs['is_last']
+        return obs
+    driver.on_observation(train_obs)
 
     checkpoint = embodied.Checkpoint(logdir / 'checkpoint.pkl')
     checkpoint.step = step

@@ -161,18 +161,6 @@ class GoalCond(tfutils.Module):
         return traj, mets
     
     def get_goal(self, is_first, goal, carry):
-        ind = tf.range(goal.shape[0] // 2)
-        embed = self.wm.encoder({'observation': tf.gather(goal, ind)})
-        embed = embed.astype(tf.float32)
-        upd = tf.gather(is_first, ind)
-        switch = lambda x, y: (
-            tf.einsum('i,i...->i...', 1 - upd.astype(x.dtype), x) +
-            tf.einsum('i,i...->i...', upd.astype(x.dtype), y)
-        )
-        carry = {'goal': switch(carry['goal'], embed)}
-        return carry
-    
-    def get_eval_goal(self, is_first, goal, carry):
         embed = self.wm.encoder({'observation': goal}).astype(tf.float32)
         switch = lambda x, y: (
             tf.einsum('i,i...->i...', 1 - is_first.astype(x.dtype), x) +
